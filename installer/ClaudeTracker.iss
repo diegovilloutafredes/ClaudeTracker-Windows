@@ -7,8 +7,9 @@
 ;     the updater installs the release asset of exactly that name, and only a newer version);
 ;   - /AppArgs=<arguments> is handed to the app this setup starts when it is done, which is
 ;     how an update comes back without showing anything (Updates.SilentInstallArguments);
-;   - "ClaudeTracker.exe --quit" closes the running app (App.xaml.cs), and its mutex tells
-;     when it has gone;
+;   - the running app quits when its "ClaudeTracker.Quit" signal is raised, which is what
+;     "ClaudeTracker.exe --quit" does and what this script does itself (App.xaml.cs); the app
+;     keeps its mutex until its process has ended, and that tells when it has gone;
 ;   - "--just-installed" is added for the app this setup starts after a first install, not
 ;     after an upgrade: an uninstall takes the sign-in entry away, and the app must not read
 ;     that as the user having removed it (LoginItem.AtStart);
@@ -60,8 +61,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
-; The running app is closed by this script, with "--quit". Windows' own way (Restart
-; Manager) has nothing to ask of an app that lives in the tray without a window.
+; The running app is closed by this script, through the app's own signal. Windows' own way
+; (Restart Manager) has nothing to ask of an app that lives in the tray without a window.
 CloseApplications=no
 
 [Languages]
@@ -102,9 +103,22 @@ const
   WebView2Runtime = 'Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
   SignInKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   SignInNotesKey = 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run';
+  QuitSignal = 'Local\ClaudeTracker.Quit';
+  EVENT_MODIFY_STATE = $0002;
 
 var
   FirstInstall: Boolean;
+  // What DeinitializeSetup needs to know: that this run closed the app (and where it was),
+  // and whether it then got as far as installing it.
+  ClosedApp, Installed: Boolean;
+  ClosedAppExe: String;
+
+function OpenEvent(dwDesiredAccess: DWORD; bInheritHandle: BOOL; lpName: String): THandle;
+  external 'OpenEventW@kernel32.dll stdcall';
+function SetEvent(hEvent: THandle): BOOL;
+  external 'SetEvent@kernel32.dll stdcall';
+function CloseHandle(hObject: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
 
 function InitializeSetup: Boolean;
 begin
@@ -142,10 +156,29 @@ function QuitRunningApp: Boolean;
 var
   Code, Waited: Integer;
   Exe: String;
+  Signal: THandle;
+  WasRunning: Boolean;
 begin
   Exe := ExpandConstant('{app}\{#AppExe}');
-  if CheckForMutexes('{#AppMutexName}') and FileExists(Exe) then
-    Exec(Exe, '--quit', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  WasRunning := CheckForMutexes('{#AppMutexName}');
+  if WasRunning then
+  begin
+    // The app's own signal, raised from here: it reaches whichever copy is running. Asked
+    // only through the executable in this folder, a copy run from somewhere else (a build
+    // folder, an installed folder that was moved) was never asked, and the setup gave up.
+    Signal := OpenEvent(EVENT_MODIFY_STATE, False, QuitSignal);
+    if Signal <> 0 then
+    begin
+      Log('ClaudeTracker is running: asking it to quit through its signal');
+      SetEvent(Signal);
+      CloseHandle(Signal);
+    end
+    else if FileExists(Exe) then
+    begin
+      Log('ClaudeTracker is running and its signal could not be opened: asking through ' + Exe);
+      Exec(Exe, '--quit', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    end;
+  end;
   Waited := 0;
   while CheckForMutexes('{#AppMutexName}') and (Waited < 20000) do
   begin
@@ -153,9 +186,15 @@ begin
     Waited := Waited + 250;
   end;
   Result := not CheckForMutexes('{#AppMutexName}');
-  // The app has gone; its browser processes let go of their files a moment later.
-  if Result and (Waited > 0) then
+  if not Result then
+    Log('ClaudeTracker did not quit within 20 seconds');
+  if Result and WasRunning then
+  begin
+    ClosedApp := True;
+    ClosedAppExe := Exe;
+    // The app has gone; its browser processes let go of their files a moment later.
     Sleep(1500);
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -166,6 +205,26 @@ begin
     Result := CustomMessage('StillRunning');
 end;
 
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    Installed := True;
+end;
+
+// A setup that closed the app and then stopped (a file it could not replace, a full disk,
+// Cancel) never reaches the line that starts the app again. The app is put back beside the
+// clock here, quietly, as it was: an update that failed must not cost the user the app.
+procedure DeinitializeSetup;
+var
+  Code: Integer;
+begin
+  if ClosedApp and not Installed and FileExists(ClosedAppExe) then
+  begin
+    Log('Setup stopped after it had closed ClaudeTracker: starting it again');
+    Exec(ClosedAppExe, '--background', '', SW_SHOWNORMAL, ewNoWait, Code);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Kept: String;
@@ -174,7 +233,13 @@ begin
   begin
     // Only now, once the user has said yes. Closed when the uninstaller starts, the app
     // stayed closed for someone who then answered "No".
-    QuitRunningApp;
+    if not QuitRunningApp then
+    begin
+      // Removing the files under a copy that is still running would leave it to fail at
+      // whatever it loads next, in a folder that nothing lists any more.
+      SuppressibleMsgBox(CustomMessage('StillRunning'), mbError, MB_OK, IDOK);
+      Abort;
+    end;
     // The app's own entry in the user's sign-in, and Windows' note about it. The app wrote
     // them, so no [Registry] line would take them away.
     RegDeleteValue(HKCU, SignInKey, '{#SignInEntry}');
