@@ -89,6 +89,59 @@ public static class ChartLayout
         return DateTimeOffset.UnixEpoch.AddMinutes(minutes).ToOffset(moment.Offset);
     }
 
+    /// <summary>The steps a time axis may count in, in seconds: 5 minutes up to two weeks.</summary>
+    private static readonly double[] TimeSteps =
+        [300, 600, 900, 1800, 3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400, 7 * 86400, 14 * 86400];
+
+    /// <summary>A Monday to count several-day steps from, so a week's marks fall on Mondays.</summary>
+    private static readonly DateTime FirstMonday = new(1970, 1, 5);
+
+    /// <summary>
+    /// Where a time axis puts its marks: on round times of the reader's own clock — the hour,
+    /// the quarter, midnight — at the finest step that leaves no more than four of them. An
+    /// axis marked at 09:21 and 11:01 is harder to read than one marked at 10:00 and 12:00.
+    /// </summary>
+    public static IReadOnlyList<DateTimeOffset> TimeTicks(DateTimeOffset lower, DateTimeOffset upper, TimeZoneInfo? timeZone = null)
+    {
+        var span = (upper - lower).TotalSeconds;
+        if (!(span > 0)) return [];
+        var step = TimeSteps.FirstOrDefault(candidate => span / candidate <= 4);
+        if (step == 0)
+        {
+            // Past eight weeks — a forecast at a crawling pace runs that far: fortnights, doubled.
+            for (step = TimeSteps[^1]; span / step > 4; step *= 2) { }
+        }
+        timeZone ??= TimeZoneInfo.Local;
+
+        // Counted on the wall clock from midnight, not in seconds from the first mark: the
+        // marks then stay on round times whatever the offset from UTC, and when the clocks change.
+        var wall = TimeZoneInfo.ConvertTime(lower, timeZone).DateTime;
+        var origin = wall.Date;
+        if (step > 86400)
+        {
+            // Or the marks would start wherever the range happens to.
+            var days = (long)(step / 86400);
+            var sinceMonday = (long)(origin - FirstMonday).TotalDays;
+            origin = origin.AddDays(-(((sinceMonday % days) + days) % days));
+        }
+        var ticks = new List<DateTimeOffset>();
+        for (var count = (long)Math.Floor((wall - origin).TotalSeconds / step); ticks.Count < 8; count++)
+        {
+            var mark = origin.AddSeconds(count * step);
+            if (timeZone.IsInvalidTime(mark))
+            {
+                // The clocks skip this moment. A day's mark moves to the first moment that day
+                // has (where they change at midnight, there is no midnight); an hour's is left out.
+                if (step < 86400) continue;
+                mark = mark.AddHours(1);
+            }
+            var tick = new DateTimeOffset(mark, timeZone.GetUtcOffset(mark));
+            if (tick > upper) break;
+            if (tick >= lower) ticks.Add(tick);
+        }
+        return ticks;
+    }
+
     /// <summary>
     /// An axis or pointer label: the clock time for a span under about a day (in the user's
     /// 12/24-hour choice, like the reset line), the month and day beyond.

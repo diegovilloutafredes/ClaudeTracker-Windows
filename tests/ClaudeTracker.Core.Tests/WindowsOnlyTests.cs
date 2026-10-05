@@ -562,6 +562,74 @@ public class WindowsOnlyTests
         Assert.Equal(Noon.AddMinutes(8), ChartLayout.QuantizeToMinute(Noon.AddMinutes(7).AddSeconds(31)));
     }
 
+    [Theory]
+    // hours shown, ending at 13:27 UTC -> the marks, as UTC clock times or days of October
+    [InlineData(1, "12:30 12:45 13:00 13:15")]
+    [InlineData(5, "10:00 12:00")]
+    [InlineData(24, "18:00 00:00 06:00 12:00")]
+    [InlineData(7 * 24, "d30 d2 d4")]
+    // Weeks and fortnights fall on Mondays: 14 and 28 September 2026 are.
+    [InlineData(30 * 24, "d14 d28")]
+    public void ATimeAxisIsMarkedOnRoundTimes(int hours, string expected)
+    {
+        var upper = Noon.AddHours(1).AddMinutes(27);
+        var ticks = ChartLayout.TimeTicks(upper.AddHours(-hours), upper, TimeZoneInfo.Utc);
+        var shown = string.Join(" ", ticks.Select(t => hours < 25 ? t.ToString("HH:mm") : "d" + t.Day));
+        Assert.Equal(expected, shown);
+        Assert.InRange(ticks.Count, 2, 4);
+    }
+
+    [Fact]
+    public void RoundTimesAreTheReadersOwnNotUtc()
+    {
+        // A zone a quarter-hour off UTC: the marks still fall on its own hours.
+        var kathmandu = TimeZoneInfo.CreateCustomTimeZone("test+5:45", new TimeSpan(5, 45, 0), "test", "test");
+        var ticks = ChartLayout.TimeTicks(Noon.AddHours(-5), Noon, kathmandu);
+        Assert.All(ticks, tick => Assert.Equal(0, TimeZoneInfo.ConvertTime(tick, kathmandu).Minute));
+        Assert.Empty(ChartLayout.TimeTicks(Noon, Noon));
+    }
+
+    /// <summary>Clocks an hour forward at midnight on 6 September and back at midnight on 5 April, as in Chile.</summary>
+    private static TimeZoneInfo MidnightChanges()
+    {
+        var midnight = new DateTime(1, 1, 1, 0, 0, 0);
+        var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+            DateTime.MinValue.Date, DateTime.MaxValue.Date, TimeSpan.FromHours(1),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(midnight, 9, 6),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(midnight, 4, 5));
+        return TimeZoneInfo.CreateCustomTimeZone("test-4", TimeSpan.FromHours(-4), "test", "test", "test summer", [rule]);
+    }
+
+    [Theory]
+    // The clocks go back: counted in seconds, every mark after it would sit at 23:00 the day before.
+    [InlineData(4, 8, "3@0 5@0 7@0")]
+    // The clocks go forward at midnight: that day has no midnight, and its mark is its first moment.
+    [InlineData(9, 9, "4@0 6@1 8@0")]
+    // Within a day, the hour that does not exist is left out rather than drawn twice.
+    [InlineData(9, 6, "5@12 5@18 6@6 6@12")]
+    public void DayMarksStayOnTheirDayWhenTheClocksChange(int month, int lastDay, string expected)
+    {
+        var zone = MidnightChanges();
+        var upper = new DateTimeOffset(2026, month, lastDay, 16, 0, 0, TimeSpan.Zero);
+        var lower = lastDay == 6 ? upper.AddHours(-24) : upper.AddDays(-7);
+        var shown = ChartLayout.TimeTicks(lower, upper, zone)
+            .Select(tick => TimeZoneInfo.ConvertTime(tick, zone))
+            .Select(local => $"{local.Day}@{local.Hour}");
+        Assert.Equal(expected, string.Join(" ", shown));
+    }
+
+    [Fact]
+    public void AnAxisOfAnyLengthKeepsToAFewMarks()
+    {
+        // A forecast at a crawling pace ends when it would fill: here in over a year.
+        foreach (var days in new[] { 9, 40, 100, 400, 4000 })
+        {
+            var ticks = ChartLayout.TimeTicks(Noon, Noon.AddDays(days), TimeZoneInfo.Utc);
+            Assert.InRange(ticks.Count, 1, 5);
+            Assert.All(ticks, tick => Assert.Equal(DayOfWeek.Monday, tick.DayOfWeek));
+        }
+    }
+
     [Fact]
     public void ALabelIsAClockTimeWithinADayAndADateBeyond()
     {
