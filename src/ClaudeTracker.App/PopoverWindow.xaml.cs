@@ -28,6 +28,13 @@ public partial class PopoverWindow : Window
     /// provoked, and <see cref="HideIfNeverFocused"/> must still be seen working.
     /// </summary>
     internal bool NeverTakesFocus { get; set; }
+
+    /// <summary>"Settings" was pressed in the footer.</summary>
+    internal event Action? SettingsRequested;
+
+    /// <summary>The popover's width at 100%, in WPF units.</summary>
+    private const double NaturalWidth = 340;
+    private double appliedScale = 1;
     /// <summary>Hides a popover that never got the focus; see <see cref="HideIfNeverFocused"/>.</summary>
     private readonly DispatcherTimer unfocused = new() { Interval = TimeSpan.FromSeconds(8) };
 
@@ -45,8 +52,13 @@ public partial class PopoverWindow : Window
             HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(KeepPinned);
         };
         QuitLink.Click += (_, _) => Application.Current.Shutdown();
-        QuitLink.MouseEnter += (_, _) => QuitLink.Foreground = Primary;
-        QuitLink.MouseLeave += (_, _) => QuitLink.Foreground = Secondary;
+        SettingsLink.Click += (_, _) => SettingsRequested?.Invoke();
+        AccountMenuButton.Click += (_, _) => OpenAccountMenu();
+        foreach (var link in new[] { QuitLink, SettingsLink, AccountMenuButton })
+        {
+            link.MouseEnter += (_, _) => link.Foreground = Primary;
+            link.MouseLeave += (_, _) => link.Foreground = Secondary;
+        }
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == System.Windows.Input.Key.Escape) HidePopover();
@@ -99,6 +111,7 @@ public partial class PopoverWindow : Window
         // Centered on the given point horizontally, kept inside the work area; resting on its
         // bottom edge, which is the top of the taskbar.
         var handle = new WindowInteropHelper(this).EnsureHandle();
+        ApplyPopupSize(); // before the width is measured
         var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
         var widthPixels = (int)Math.Round(Width * scale);
         var right = Math.Clamp(centerX + widthPixels / 2, area.Left + widthPixels + margin, area.Right - margin);
@@ -114,6 +127,39 @@ public partial class PopoverWindow : Window
         }
         unfocused.Stop();
         unfocused.Start();
+    }
+
+    /// <summary>
+    /// Applies the "Popup size" setting: everything inside is scaled as one, and the window is
+    /// made as much wider. It has to be a layout transform — a render transform would draw the
+    /// content larger without the window growing around it — and the width has to follow,
+    /// because it is fixed on the window, outside what the transform reaches.
+    /// </summary>
+    private void ApplyPopupSize()
+    {
+        var scale = viewModel.PopupScale;
+        if (scale == appliedScale) return;
+        appliedScale = scale;
+        Root.LayoutTransform = scale == 1 ? Transform.Identity : new ScaleTransform(scale, scale);
+        Width = NaturalWidth * scale;
+    }
+
+    /// <summary>The list behind the account's name in the header: every account, then "Add account".</summary>
+    private void OpenAccountMenu()
+    {
+        var menu = new ContextMenu { PlacementTarget = AccountMenuButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        foreach (var account in viewModel.Accounts)
+        {
+            // A menu reads "_" as the mark of a shortcut letter; doubled, it is an underscore.
+            var item = new MenuItem { Header = account.Label.Replace("_", "__"), IsChecked = account.Id == viewModel.ActiveAccountId };
+            item.Click += (_, _) => viewModel.SwitchAccount(account.Id);
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new Separator());
+        var add = new MenuItem { Header = L.T("Add account") };
+        add.Click += (_, _) => viewModel.OpenLoginForNewAccount();
+        menu.Items.Add(add);
+        menu.IsOpen = true;
     }
 
     /// <summary>
@@ -244,8 +290,25 @@ public partial class PopoverWindow : Window
         Divider.Background = Gray(isDark ? (byte)0x45 : (byte)0xDD);
         HeaderTitle.Text = L.T("Claude Tracker");
         HeaderTitle.Foreground = Primary;
+        ApplyPopupSize();
         QuitLink.Content = L.T("Quit");
-        QuitLink.Foreground = QuitLink.IsMouseOver ? Primary : Secondary;
+        SettingsLink.Content = L.T("Settings");
+        foreach (var link in new[] { QuitLink, SettingsLink, AccountMenuButton })
+        {
+            link.Foreground = link.IsMouseOver ? Primary : Secondary;
+        }
+
+        // With one account the header is the plan badge alone, as it always was. With more,
+        // the active account's name stands beside it and opens the list.
+        if (viewModel.Accounts.Count >= 2 && viewModel.ActiveAccount is { } active)
+        {
+            AccountMenuButton.Content = active.Label + " ▾";
+            AccountMenuButton.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            AccountMenuButton.Visibility = Visibility.Collapsed;
+        }
 
         if (viewModel.ActiveSubscriptionLabel is { } plan)
         {
@@ -330,6 +393,15 @@ public partial class PopoverWindow : Window
             Body.Children.Add(WindowRow(tracked, top: first ? 0 : 17));
             first = false;
         }
+
+        if (viewModel.Usage?.ExtraUsage is { IsEnabled: true } extra)
+        {
+            Body.Children.Add(Text(L.T("Extra Usage"), 13, Primary, weight: FontWeights.Bold, top: 17));
+            if (extra is { UsedCredits: { } used, MonthlyLimit: { } limit })
+            {
+                Body.Children.Add(Text(Money.SpentOfLimit(used, limit, CultureInfo.CurrentCulture), 12, Secondary, top: 4));
+            }
+        }
     }
 
     /// <summary>One usage window: title, percentage, bar, and when it resets.</summary>
@@ -371,8 +443,24 @@ public partial class PopoverWindow : Window
             var absolute = TimeText.ResetTimeText(reset, now, viewModel.Use24HourTime, includeDate: tracked.IsSevenDay);
             panel.Children.Add(Text(L.F("Resets in %@ · %@", RelativeTime.Until(reset - now), absolute), 12, Secondary, top: 6));
         }
+
+        // No pace on a full window (there is nothing left to project) or a stale one.
+        if (viewModel.ShowPace && !isStale && window.Utilization < 100 && viewModel.Pace(tracked.Key) is { } pace)
+        {
+            var now = DateTimeOffset.UtcNow;
+            // One band for both lines, so the rate can never be amber over a red outlook.
+            var accent = PaceBrush(PaceMath.AccentUrgency(pace.ProjectedHours, window.ResetsAtDate, isStale, now));
+            panel.Children.Add(Text(PaceText.Line(pace.Rate, pace.ProjectedHours, viewModel.PaceRateUnit), 12, accent, top: 5));
+            if (PaceText.Outlook(pace.ProjectedHours, window.ResetsAtDate, now) is { } outlook)
+            {
+                panel.Children.Add(Text(outlook.Message, 12, accent, top: 3));
+            }
+        }
         return panel;
     }
+
+    /// <summary>Pace text: neutral while the pace is safe, else the urgency colour's legible variant.</summary>
+    private Brush PaceBrush(double urgency) => urgency > 0 ? From(Urgency.TextColor(urgency, isDark, BackgroundRgb)) : Secondary;
 
     private static TextBlock Text(string text, double size, Brush brush, FontWeight? weight = null, double top = 0, double bottom = 0) => new()
     {

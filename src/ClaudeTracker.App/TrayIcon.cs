@@ -15,6 +15,7 @@ internal sealed class TrayIcon : IDisposable
 {
     private readonly WinForms.NotifyIcon notifyIcon = new();
     private readonly WinForms.ToolStripMenuItem openItem = new();
+    private readonly WinForms.ToolStripMenuItem settingsItem = new();
     private readonly WinForms.ToolStripMenuItem quitItem = new();
     private const string CondensedFamily = "Bahnschrift SemiBold Condensed";
 
@@ -30,6 +31,9 @@ internal sealed class TrayIcon : IDisposable
     /// <summary>"Open" was chosen from the icon's menu.</summary>
     public event Action? OpenRequested;
 
+    /// <summary>"Settings" was chosen from the icon's menu.</summary>
+    public event Action? SettingsRequested;
+
     public event Action? QuitRequested;
 
     public TrayIcon()
@@ -43,9 +47,11 @@ internal sealed class TrayIcon : IDisposable
             if (e.Button == WinForms.MouseButtons.Left) Clicked?.Invoke();
         };
         openItem.Click += (_, _) => OpenRequested?.Invoke();
+        settingsItem.Click += (_, _) => SettingsRequested?.Invoke();
         quitItem.Click += (_, _) => QuitRequested?.Invoke();
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add(openItem);
+        menu.Items.Add(settingsItem);
         menu.Items.Add(quitItem);
         notifyIcon.ContextMenuStrip = menu;
     }
@@ -70,6 +76,7 @@ internal sealed class TrayIcon : IDisposable
         // The shell rejects tooltips longer than 127 characters.
         notifyIcon.Text = tooltip.Length <= 127 ? tooltip : tooltip[..127];
         openItem.Text = L.T("Open");
+        settingsItem.Text = L.T("Settings");
         quitItem.Text = L.T("Quit");
         notifyIcon.Visible = true;
     }

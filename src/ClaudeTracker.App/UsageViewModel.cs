@@ -103,6 +103,37 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         set { settings.Set(PrefKey.Use24HourTime, value); Notify(); }
     }
 
+    /// <summary>Whether the pace and outlook lines show under each usage row.</summary>
+    public bool ShowPace
+    {
+        get => settings.GetBool(PrefKey.ShowPace) ?? true;
+        set { settings.Set(PrefKey.ShowPace, value); Notify(); }
+    }
+
+    /// <summary>
+    /// Whether the tray icon's tooltip adds the pace of the window it tracks. The Mac app shows
+    /// that pace as a badge in the menu bar; the preference has its name.
+    /// </summary>
+    public bool ShowPaceMenuBar
+    {
+        get => settings.GetBool(PrefKey.ShowPaceMenuBar) ?? true;
+        set { settings.Set(PrefKey.ShowPaceMenuBar, value); Notify(); }
+    }
+
+    /// <summary>The time unit of every rate shown. The rate itself is always computed per hour.</summary>
+    public PaceRateUnit PaceRateUnit
+    {
+        get => PaceRateUnits.FromRawValue(settings.GetString(PrefKey.PaceRateUnit)) ?? PaceRateUnit.PerHour;
+        set { settings.Set(PrefKey.PaceRateUnit, value.RawValue()); Notify(); }
+    }
+
+    /// <summary>The popover's size, as a factor on its natural size.</summary>
+    public double PopupScale
+    {
+        get => Core.PopupScale.Normalized(settings.GetDouble(PrefKey.PopupScale));
+        set { settings.Set(PrefKey.PopupScale, Core.PopupScale.Normalized(value)); Notify(); }
+    }
+
     // MARK: - Active account accessors
 
     private AccountState? ActiveState => ActiveAccountId is { } id && states.TryGetValue(id, out var state) ? state : null;
@@ -192,7 +223,21 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
             if (Usage is null && Error is not null) return L.T("Claude Tracker, usage unavailable");
             if (Usage is null || IsDataStale) return L.T("Claude Tracker, updating");
             var title = DisplayedTrackedWindow?.Title ?? MenuBarDisplay.Label();
-            return L.F("Claude Tracker, %@ at %@", title, StatusText + "%");
+            var text = L.F("Claude Tracker, %@ at %@", title, StatusText + "%");
+            return TrayPace is { } pace ? L.F("%@, pace %@", text, PaceRateUnit.Format(pace.Rate, prefix: true)) : text;
+        }
+    }
+
+    /// <summary>
+    /// The pace the tooltip adds: only with the setting on, live numbers, and the tracked window
+    /// under 100% — the conditions of the Mac app's menu bar badge.
+    /// </summary>
+    private (double Rate, double? ProjectedHours)? TrayPace
+    {
+        get
+        {
+            if (!ShowPaceMenuBar || !IsAuthenticated || Usage is null || IsDataStale || DisplayedUtilization >= 100) return null;
+            return DisplayedTrackedWindow is { } tracked ? Pace(tracked.Key) : null;
         }
     }
 
@@ -653,6 +698,33 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         {
             if (ActiveAccountId == id) StartPolling();
         });
+    }
+
+    /// <summary>
+    /// Makes another account the active one: its numbers show at once if it was polled before,
+    /// and a fresh fetch starts.
+    /// </summary>
+    public void SwitchAccount(Guid id)
+    {
+        if (id == ActiveAccountId || Accounts.All(a => a.Id != id)) return;
+        // Abandon a sign-in in progress first: activating tears down the client whose profile
+        // the sign-in window is on. Closing it runs its rollback at once, which may itself
+        // return to the account asked for here.
+        LoginWindow.CloseCurrent();
+        if (id == ActiveAccountId || Accounts.FirstOrDefault(a => a.Id == id) is not { } account) return;
+        CancelInFlightWork();
+        AppLogger.Shared.Info($"switched active account to {Short(id)}");
+        Activate(account);
+        Notify();
+    }
+
+    /// <summary>Gives an account another name. The name is trimmed; an empty one changes nothing.</summary>
+    public void RenameAccount(Guid id, string newLabel)
+    {
+        var trimmed = newLabel.Trim();
+        if (trimmed.Length == 0) return;
+        ReplaceAccount(id, account => account with { Label = trimmed });
+        Notify();
     }
 
     private Account AddAccount()

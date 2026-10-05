@@ -12,9 +12,10 @@ It is a native port of the macOS menu bar app (repo `ClaudeTracker`), which is t
 reference implementation. It reads the unofficial claude.ai web API from inside a WebView2
 session. Open source, MIT licensed.
 
-**Status:** the platform-neutral library and its tests exist, and so does a first build of
-the app (tray icon, popover with usage rows, sign-in window, polling) — spec CT-001 in the
-workspace's `shared/features/`. That build has been run signed in (2026-10-05, through
+**Status:** the platform-neutral library and its tests exist, and so does the app: tray
+icon, popover with usage rows and pace, sign-in window, polling (spec CT-001, done) and a
+Settings window with several accounts (CT-002, in progress) — specs in the workspace's
+`shared/features/`. That build has been run signed in (2026-10-05, through
 Google with a passkey): sign-in is detected, usage rows appear, the session survives a
 relaunch, and polling recovers by itself after the network drops. What is still untried is
 listed under known debt in the workspace's `shared/TESTING.md`; `shared/PARITY_MATRIX.md`
@@ -40,6 +41,7 @@ Directory.Build.props                 ← the version (one line), nullable, warn
 src/ClaudeTracker.Core/               ← logic, API decoders, storage. net10.0, no UI, no Windows APIs
   ApiModels.cs                        ← claude.ai payload types and their fail-soft decoding; log signatures
   UsageMath.cs                        ← urgency colours, pace, polling tiers, reset detection, time text
+  RowText.cs                          ← the words of the pace lines and of money; the popup size range
   History.cs                          ← chart history, chart series, downsampling
   Updates.cs                          ← release parsing, version compare, update signature verification
   FetchFailure.cs                     ← classification of in-page fetch failures; API errors
@@ -54,6 +56,7 @@ src/ClaudeTracker.App/                ← the app: WPF + WebView2, everything th
   TrayIcon.cs                         ← the tray icon, with the percentage drawn into it
   PopoverWindow.xaml(.cs)             ← the popover; rebuilt from the view model on every change
   LoginWindow.xaml(.cs)               ← claude.ai's login page; detects the new session cookie
+  SettingsWindow.xaml(.cs)            ← accounts and display settings; its two questions (rename, remove)
   Infrastructure.cs                   ← file locations, the log, light/dark detection, Win32 calls
 tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the shared test vectors
 .claude/skills/run-app/               ← how to launch the app and look at it from a terminal
@@ -71,6 +74,15 @@ tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the s
 - **One change event.** `UsageViewModel.Changed` fires after any state change; the tray
   icon and the popover redraw from the view model's current values. There are no bindings.
   Everything runs on the UI thread, where WebView2 has to live, so async code needs no locks.
+- **The Settings window is not rebuilt on a change, unlike the popover.** A poll lands
+  every few seconds, and rebuilding would replace a slider under the hand dragging it and
+  take the keyboard focus from a switch. Its Display controls are made once and only their
+  values refreshed, under a flag (`refreshing`) that keeps the change handlers from writing
+  the same value back; the account list is rebuilt only when what it shows has changed.
+- **Switches apply on Checked and Unchecked, never on Click.** A screen reader toggles a
+  switch without clicking it. The same goes for anything a test drives through UI
+  Automation — which also presses buttons of a window that a question is blocking, hence
+  the `asking` guard in `SettingsWindow`.
 - **Fetching.** `ClaudeApiClient` keeps one hidden WebView2 on a claude.ai page and runs
   each API call as `fetch()` inside it, through the DevTools `Runtime.evaluate` call with
   `awaitPromise` — WebView2's own `ExecuteScriptAsync` returns `{}` for a promise. A failed

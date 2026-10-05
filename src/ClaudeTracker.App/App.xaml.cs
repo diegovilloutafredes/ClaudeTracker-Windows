@@ -71,6 +71,8 @@ public partial class App : Application
         tray.Pressed += popover.NoteTrayPress;
         tray.Clicked += popover.Toggle;
         tray.OpenRequested += popover.ShowNearCursor;
+        tray.SettingsRequested += () => SettingsWindow.Open(viewModel);
+        popover.SettingsRequested += () => SettingsWindow.Open(viewModel);
         tray.QuitRequested += Shutdown;
         viewModel.Changed += RefreshTray;
 
@@ -154,6 +156,7 @@ public partial class App : Application
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         clock?.Stop();
         LoginWindow.CloseCurrent();
+        SettingsWindow.CloseCurrent();
         viewModel?.Shutdown();
         tray?.Dispose();
         showPopoverWait?.Unregister(null);
