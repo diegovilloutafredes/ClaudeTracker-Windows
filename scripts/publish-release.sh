@@ -9,6 +9,12 @@
 # Nothing is public until the last step, and the app passes drafts over, so a run that
 # fails leaves users untouched: run it again.
 #
+# What this signs is what every installed copy will run without asking. It checks that the
+# workflow ran on the commit tagged in THIS clone, and that the setup carries the version;
+# it does not check that the draft's file is the one that run built. Someone able to write
+# to the repository on GitHub could put another file with the right version on the draft
+# between the build and this script: look at the draft before running this if in doubt.
+#
 # The Mac repo is looked for beside this one (the workspace's layout); CLAUDETRACKER_MAC_REPO
 # points somewhere else.
 set -euo pipefail
@@ -60,6 +66,15 @@ if ! gh run watch "$run" --exit-status --interval 20 > /dev/null; then
   echo "Fix the cause, delete the tag (git push origin :refs/tags/$tag; git tag -d $tag), and tag again." >&2
   exit 1
 fi
+
+# The run must have built the commit that is tagged here, in this clone: a tag moved on
+# GitHub, or a run started from another commit, is not the release that was meant.
+tagged=$(git rev-parse --verify --quiet "$tag^{commit}") || {
+  echo "There is no tag $tag in this clone. Fetch it (git fetch origin tag $tag) and check that it is the commit you meant (git log -1 $tag)." >&2
+  exit 1
+}
+built_from=$(gh run view "$run" --json headSha -q .headSha)
+[ "$built_from" = "$tagged" ] || { echo "The Release workflow built $built_from, but $tag is $tagged in this clone." >&2; exit 1; }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
