@@ -51,6 +51,7 @@ public partial class SettingsWindow : Window
         DisplayHeader.Text = L.T("Display");
         TrayShowsLabel.Text = L.T("Tray icon shows");
         PopupSizeLabel.Text = L.T("Popup size");
+        ShowChartsSwitch.Content = L.T("Show charts tab");
         ShowModelsSwitch.Content = L.T("Show per-model usage");
         ShowPaceSwitch.Content = L.T("Show pace in usage tab");
         ShowTrayPaceSwitch.Content = L.T("Show pace in tray tooltip");
@@ -118,6 +119,7 @@ public partial class SettingsWindow : Window
         {
             if (!refreshing) viewModel.PopupScale = PopupSizeSlider.Value;
         };
+        BindSwitch(ShowChartsSwitch, on => viewModel.ShowChartsTab = on);
         BindSwitch(ShowModelsSwitch, on => viewModel.ShowModelWindows = on);
         BindSwitch(ShowPaceSwitch, on => viewModel.ShowPace = on);
         BindSwitch(ShowTrayPaceSwitch, on => viewModel.ShowPaceMenuBar = on);
@@ -223,7 +225,7 @@ public partial class SettingsWindow : Window
             {
                 text.Foreground = Secondary;
             }
-            foreach (var toggle in new[] { ShowModelsSwitch, ShowPaceSwitch, ShowTrayPaceSwitch, Notify5HourSwitch, Notify7DaySwitch,
+            foreach (var toggle in new[] { ShowChartsSwitch, ShowModelsSwitch, ShowPaceSwitch, ShowTrayPaceSwitch, Notify5HourSwitch, Notify7DaySwitch,
                                            ResetToastSwitch, ResetPermanentSwitch, ResetSoundSwitch, NotifyPaceSwitch,
                                            PaceToastSwitch, PacePermanentSwitch, PaceSoundSwitch })
             {
@@ -244,6 +246,7 @@ public partial class SettingsWindow : Window
             PopupSizeSlider.Value = scale;
             PopupSizeValue.Text = ((int)Math.Round(scale * 100)).ToString(CultureInfo.InvariantCulture) + "%";
             AutomationProperties.SetHelpText(PopupSizeSlider, PopupSizeValue.Text);
+            ShowChartsSwitch.IsChecked = viewModel.ShowChartsTab;
             ShowModelsSwitch.IsChecked = viewModel.ShowModelWindows;
             ShowPaceSwitch.IsChecked = viewModel.ShowPace;
             ShowTrayPaceSwitch.IsChecked = viewModel.ShowPaceMenuBar;
@@ -434,10 +437,7 @@ public partial class SettingsWindow : Window
     {
         var button = new Button
         {
-            Content = glyph,
-            // Windows 11's symbol font, then Windows 10's: the same symbols at the same codes.
-            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
-            FontSize = 14,
+            Content = Symbols.Text(glyph, 14),
             Foreground = brush,
             Padding = new Thickness(8, 6, 8, 6),
             Margin = new Thickness(6, 0, 0, 0),

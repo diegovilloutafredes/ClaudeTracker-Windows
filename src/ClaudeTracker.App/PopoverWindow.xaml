@@ -33,6 +33,11 @@
                 <Button x:Name="AccountMenuButton" DockPanel.Dock="Right" Style="{StaticResource Link}"
                         FontSize="12" FontWeight="SemiBold" Margin="0,0,2,0" VerticalAlignment="Center" MaxWidth="150" />
             </DockPanel>
+            <!-- "Usage" | "Charts", while signed in and with the Charts tab switched on. -->
+            <ContentControl x:Name="TabBar" Margin="0,14,0,0" Focusable="False" />
+            <!-- A passing remark from the app ("That account was already here…"). Outside the
+                 body, so the body can hold the Charts tab and nothing else. -->
+            <TextBlock x:Name="NoticeText" FontSize="12" TextWrapping="Wrap" Margin="0,17,0,-5" Visibility="Collapsed" />
             <StackPanel x:Name="Body" Margin="0,17,0,0" />
             <Border x:Name="Divider" Height="1" Margin="0,17,0,12" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,-3,-6,-3">

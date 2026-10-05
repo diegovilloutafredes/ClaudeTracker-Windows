@@ -163,6 +163,71 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         set { settings.Set(PrefKey.PopupScale, Core.PopupScale.Normalized(value)); Notify(); }
     }
 
+    // MARK: - Chart preferences
+
+    /// <summary>Whether the popover has its Charts tab at all.</summary>
+    public bool ShowChartsTab
+    {
+        get => settings.GetBool(PrefKey.ShowChartsTab) ?? true;
+        set
+        {
+            settings.Set(PrefKey.ShowChartsTab, value);
+            // Without the tabs there is no way back from Charts: return to Usage.
+            if (!value) settings.Set(PrefKey.SelectedTab, 0);
+            Notify();
+        }
+    }
+
+    /// <summary>The popover's tab: 0 for Usage, 1 for Charts.</summary>
+    public int SelectedTab
+    {
+        get => ShowChartsTab && settings.GetInt(PrefKey.SelectedTab) == 1 ? 1 : 0;
+        set { settings.Set(PrefKey.SelectedTab, value == 1 ? 1 : 0); Notify(); }
+    }
+
+    /// <summary>How much history the charts span.</summary>
+    public ChartTimeRange ChartTimeRange
+    {
+        get => ChartTimeRanges.FromRawValue(settings.GetString(PrefKey.ChartTimeRange)) ?? ChartTimeRange.OneDay;
+        set { settings.Set(PrefKey.ChartTimeRange, value.RawValue()); Notify(); }
+    }
+
+    public bool ChartShowUtilization
+    {
+        get => settings.GetBool(PrefKey.ChartShowUtilization) ?? true;
+        set { settings.Set(PrefKey.ChartShowUtilization, value); Notify(); }
+    }
+
+    public bool ChartShowPace
+    {
+        get => settings.GetBool(PrefKey.ChartShowPace) ?? true;
+        set { settings.Set(PrefKey.ChartShowPace, value); Notify(); }
+    }
+
+    public bool ChartShowForecast
+    {
+        get => settings.GetBool(PrefKey.ChartShowForecast) ?? true;
+        set { settings.Set(PrefKey.ChartShowForecast, value); Notify(); }
+    }
+
+    /// <summary>
+    /// The chart sections the user switched off. Stored as the hidden ones, so a window the
+    /// service starts reporting later shows without anyone opting in.
+    /// </summary>
+    public HashSet<string> HiddenChartSeries => Charts.DecodeHiddenKeys(settings.GetString(PrefKey.ChartHiddenSeries));
+
+    public void SetChartSeriesShown(string key, bool shown)
+    {
+        var hidden = HiddenChartSeries;
+        if (shown) hidden.Remove(key);
+        else hidden.Add(key);
+        settings.Set(PrefKey.ChartHiddenSeries, Charts.EncodeHiddenKeys(hidden));
+        Notify();
+    }
+
+    /// <summary>The chart sections on offer: the two built-in windows always, then each per-model window reported.</summary>
+    public IReadOnlyList<ChartSeries> ChartSeries => Charts.SeriesFor(Usage);
+
     // MARK: - Alert preferences
     //
     // The names, the keys and the starting values are the Mac app's.

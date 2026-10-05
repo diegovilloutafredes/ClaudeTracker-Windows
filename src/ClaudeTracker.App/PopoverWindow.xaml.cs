@@ -43,6 +43,12 @@ public partial class PopoverWindow : Window
     /// <summary>"Settings" was pressed in the footer.</summary>
     internal event Action? SettingsRequested;
 
+    /// <summary>The Charts tab: one element, kept and brought up to date at each render.</summary>
+    private readonly ChartsTab charts;
+    /// <summary>"Usage" | "Charts". Kept too, so the tab holding the keyboard keeps it through a poll.</summary>
+    private readonly Segmented tabPicker;
+    private ContextMenu? accountMenu;
+
     /// <summary>The popover's width at 100%, in WPF units.</summary>
     private const double NaturalWidth = 340;
     private double appliedScale = 1;
@@ -53,6 +59,9 @@ public partial class PopoverWindow : Window
     {
         this.viewModel = viewModel;
         InitializeComponent();
+        charts = new ChartsTab(viewModel);
+        tabPicker = new Segmented("popover-tab", index => viewModel.SelectedTab = index);
+        TabBar.Content = tabPicker;
         viewModel.Changed += () => { if (IsVisible) Render(); };
         Deactivated += (_, _) => HidePopover();
         unfocused.Tick += (_, _) => HideIfNeverFocused();
@@ -171,6 +180,7 @@ public partial class PopoverWindow : Window
         var add = new MenuItem { Header = L.T("Add account") };
         add.Click += (_, _) => viewModel.OpenLoginForNewAccount();
         menu.Items.Add(add);
+        accountMenu = menu;
         menu.IsOpen = true;
     }
 
@@ -202,6 +212,11 @@ public partial class PopoverWindow : Window
         // shown again, and a stray Space would then press "Quit".
         System.Windows.Input.FocusManager.SetFocusedElement(this, null);
         Hide();
+        // A menu opened without a click — by a screen reader, on a popover that never had the
+        // focus — closes with nothing but this: it would stay on screen over an empty corner.
+        if (accountMenu is { } open) open.IsOpen = false;
+        accountMenu = null;
+        charts.Leave();
     }
 
     private void PinToAnchor()
@@ -335,11 +350,29 @@ public partial class PopoverWindow : Window
             Badge.Visibility = Visibility.Collapsed;
         }
 
-        Body.Children.Clear();
-        if (viewModel.Notice is { } notice)
+        NoticeText.Text = viewModel.Notice ?? "";
+        NoticeText.Foreground = Secondary;
+        NoticeText.Visibility = viewModel.Notice is null ? Visibility.Collapsed : Visibility.Visible;
+
+        var palette = new Palette(isDark, Primary, Secondary, Tertiary, BackgroundRgb);
+        var tabs = viewModel.IsAuthenticated && viewModel.ShowChartsTab;
+        if (tabs) tabPicker.Show([L.T("Usage"), L.T("Charts")], viewModel.SelectedTab, palette);
+        TabBar.Visibility = tabs ? Visibility.Visible : Visibility.Collapsed;
+
+        if (tabs && viewModel.SelectedTab == 1)
         {
-            Body.Children.Add(Text(notice, 12, Secondary, bottom: 12));
+            // The charts draw from the saved history, so they show before the first fetch too.
+            // The tab is one element that brings itself up to date. It is left where it is
+            // when it is already what the body shows: taken out and put back, its menu would
+            // close and its list scroll back to the top, at every poll.
+            var view = charts.Refresh(palette, MaxChartListHeight());
+            if (Body.Children.Count == 1 && ReferenceEquals(Body.Children[0], view)) return;
+            Body.Children.Clear();
+            Body.Children.Add(view);
+            return;
         }
+
+        Body.Children.Clear();
         if (!viewModel.IsAuthenticated)
         {
             if (viewModel.SessionNeedsSignIn) RenderExpired();
@@ -357,6 +390,18 @@ public partial class PopoverWindow : Window
         {
             Body.Children.Add(Centered(Text(L.T("Loading…"), 13, Secondary)));
         }
+    }
+
+    /// <summary>
+    /// The tallest the charts' scrolling list may be, so the popover never outgrows the screen:
+    /// the work area less what surrounds the list (header, tabs, range picker, footer,
+    /// padding). In the popover's own units, which the popup size setting scales.
+    /// </summary>
+    private double MaxChartListHeight()
+    {
+        var area = (WinForms.Screen.PrimaryScreen ?? WinForms.Screen.AllScreens[0]).WorkingArea;
+        var available = area.Height / VisualTreeHelper.GetDpi(this).DpiScaleY / appliedScale;
+        return Math.Max(available - 250, 320);
     }
 
     private void RenderSignedOut()

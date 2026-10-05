@@ -63,6 +63,7 @@
                     <TextBlock x:Name="PopupSizeValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
                     <Slider x:Name="PopupSizeSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
                 </DockPanel>
+                <CheckBox x:Name="ShowChartsSwitch" Style="{StaticResource Switch}" />
                 <CheckBox x:Name="ShowModelsSwitch" Style="{StaticResource Switch}" />
                 <CheckBox x:Name="ShowPaceSwitch" Style="{StaticResource Switch}" />
                 <CheckBox x:Name="ShowTrayPaceSwitch" Style="{StaticResource Switch}" />

@@ -116,12 +116,10 @@ internal sealed class ToastWindow : Window
         Background = Gray(isDark ? (byte)0x2C : (byte)0xF9);
         announcement = title + ". " + message;
 
-        // Windows 11's symbol font, then Windows 10's: the same symbols at the same codes.
-        var symbols = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
         var symbol = new TextBlock
         {
-            Text = kind == ToastKind.Reset ? "" : "", // a tick, a warning triangle
-            FontFamily = symbols,
+            Text = kind == ToastKind.Reset ? "\uE73E" : "\uE7BA", // a tick, a warning triangle
+            FontFamily = Symbols.Family,
             FontSize = 20,
             Foreground = new SolidColorBrush(kind == ToastKind.Reset ? Color.FromRgb(0x2E, 0xA0, 0x43) : Color.FromRgb(0xD9, 0x82, 0x1E)),
             Margin = new Thickness(0, 2, 12, 0),
@@ -130,7 +128,7 @@ internal sealed class ToastWindow : Window
 
         var close = new Button
         {
-            Content = new TextBlock { Text = "", FontFamily = symbols, FontSize = 10, Foreground = secondary },
+            Content = new TextBlock { Text = "\uE711", FontFamily = Symbols.Family, FontSize = 10, Foreground = secondary },
             Template = PlainButton(),
             Cursor = System.Windows.Input.Cursors.Hand,
             Focusable = false,

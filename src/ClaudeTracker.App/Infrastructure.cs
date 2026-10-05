@@ -95,6 +95,21 @@ internal static class SystemTheme
     }
 }
 
+/// <summary>Windows' own symbols: the pencil, the bin, the filter.</summary>
+internal static class Symbols
+{
+    /// <summary>Windows 11's symbol font, then Windows 10's: the same symbols at the same codes.</summary>
+    public static readonly System.Windows.Media.FontFamily Family = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    /// <summary>
+    /// A symbol as an element of its own, to put inside a button. The font goes on this and
+    /// never on the button: a button's tooltip and its menu take the button's font, and this
+    /// one draws every letter as an empty box.
+    /// </summary>
+    public static System.Windows.Controls.TextBlock Text(string glyph, double size) =>
+        new() { Text = glyph, FontFamily = Family, FontSize = size };
+}
+
 internal static class Native
 {
     [StructLayout(LayoutKind.Sequential)]
