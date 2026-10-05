@@ -145,9 +145,20 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
   enters the user's sign-in or replaces itself with an update; the other shows neither
   switch in Settings and is offered an update as a link. A build folder is rebuilt under
   your hands, and registered at sign-in it would be what starts instead of the real app.
-- **"--quit" closes the running copy.** The copy started with it raises a named event and
-  starts nothing. The setup and the uninstaller use it before they touch the app's files,
-  and then wait for the single-instance mutex to go.
+- **The running copy quits when its `ClaudeTracker.Quit` event is raised.** The setup and
+  the uninstaller raise it themselves before they touch the app's files (so it reaches a
+  copy run from any folder), and `ClaudeTracker.exe --quit` raises it and starts nothing.
+  They then wait for the single-instance mutex to go — which the app never releases: it
+  goes when the process ends, and that is what "nothing of the app is in use any more"
+  has to mean. An uninstaller that cannot make the app quit stops and removes nothing.
+- **A setup that closed the app and then stopped starts it again** (`DeinitializeSetup` in
+  the script): a file it could not replace, a full disk, Cancel. An update that fails must
+  not cost the user the app beside the clock.
+- **A setting that cannot be saved is logged, never thrown** (`SettingsStore.Set`, which
+  returns whether the file now holds the value). Preferences are set in the middle of
+  starting up; thrown from there, a read-only settings file once stopped the app before it
+  had loaded its accounts, and "Add a Claude account" would then have saved a new roster
+  over them. For the same reason `Start()` loads the roster before anything that writes.
 - **Launch at sign-in is two registry values, and the app follows what was done to them
   elsewhere** (`LoginItem.AtStart`, applied by `SyncLaunchAtLogin` at start and whenever
   Settings opens). The entry is a value under the user's Run key, run with
@@ -166,8 +177,21 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
 - **The app does not quit to be updated.** It starts the setup with
   `Updates.SilentInstallArguments` and waits; the setup asks it to quit when it is ready to
   replace it, and starts it again with what `/AppArgs=` carried (`--background`). A setup
-  that stops early therefore leaves the app running, which counts it as a failed install:
-  three of one release and it stops trying (`RecordInstallFailure`, the Mac's rule).
+  that stops early therefore leaves the app running, to say why.
+- **An automatic install is counted when it is set off, not when it fails**
+  (`TriggerAutoInstall`; three of one release and the app stops trying it by itself). An
+  install can end without this copy living to see how — the PC shuts down, the setup closes
+  the app and then stops — and counted only on failure such a release was never tried
+  again. The count is saved before the countdown; if it cannot be saved the install is not
+  set off, because uncounted attempts have no end. The Mac counts failures (`DIVERGENCES`).
+- **The setup is held open from the moment it is read until it has run** (`FileShare.Read`:
+  it can be read and started, not written, replaced or removed), so what runs is what was
+  judged, however long an open sign-in window keeps it waiting. Its version is read only
+  after its signature has verified.
+- **A download is given up when nothing arrives for a minute, or when it passes 600 MB**
+  (`Updates.DownloadStallSeconds`, `LargestSetupBytes`), and is not started with under
+  300 MB free. Every failure of the install ends the attempt — the catch is for everything,
+  or one nobody thought of leaves "Downloading…" standing until the app is restarted.
 - **"Download" opens a release's page only if it is a web address** (`Updates.IsWebLink`).
   The address comes out of a list the app fetched, and Windows opens or runs whatever it
   is handed.
@@ -254,7 +278,7 @@ what a user gets; `.claude/skills/run-app` says what to expect from each.
 | Argument | What it does |
 |---|---|
 | `--background` | Starts without showing the popover. Not for development: the sign-in entry passes it, and so does an update |
-| `--quit` | Closes the copy that is running and starts nothing. Not for development either: the setup and the uninstaller use it |
+| `--quit` | Closes the copy that is running and starts nothing. Not for development either: it is what the setup and the uninstaller fall back on when they cannot raise the quit signal themselves |
 | `--just-installed` | Said by the setup to the app it starts after a first install (not an upgrade): a sign-in entry the uninstaller took away is put back if the settings say on |
 | `--language <tag>` | Runs this copy in another language without changing Windows: `es` for the words, `es-CL` for the regional format too. Windows' own words inside the app (a text field's menu) stay as Windows has them |
 | `--update-feed <address>` | Reads the releases from that address instead of GitHub. What it serves is trusted no more than GitHub: a setup still needs a signature the embedded key verifies |

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("signed-badly", "unsigned", "missing-file", "none", "stop")] [string]$Kind = "signed-badly",
+    [ValidateSet("signed-badly", "unsigned", "missing-file", "odd-address", "none", "stop")] [string]$Kind = "signed-badly",
     [string]$Setup = "",
     [string]$Signature = "",
     [string]$Version = "0.2.0",
@@ -12,6 +12,8 @@ param(
 #   signed-badly  v<Version> with the setup and a signature that is 64 bytes of nothing
 #   unsigned      v<Version> with the setup and no signature
 #   missing-file  v<Version> whose setup is not there (the download fails)
+#   odd-address   v<Version> whose setup is given as a file on this PC, not a web address:
+#                 the app must treat it as no file at all and offer the release page
 #   none          nothing newer than what runs
 #   stop          stops the server
 #
@@ -36,7 +38,7 @@ if ($Kind -eq "stop") {
 New-Item -ItemType Directory -Force $feed | Out-Null
 $base = "http://127.0.0.1:$Port"
 $served = Join-Path $feed "ClaudeTracker-Setup.exe"
-if ($Kind -eq "missing-file") { if (Test-Path $served) { [System.IO.File]::Delete($served) } }
+if ($Kind -in "missing-file", "odd-address") { if (Test-Path $served) { [System.IO.File]::Delete($served) } }
 elseif ($Kind -ne "none") {
     if (-not $Setup -or -not (Test-Path $Setup)) { throw "-Setup <the setup file to offer> is needed for '$Kind'" }
     Copy-Item $Setup $served -Force
@@ -47,7 +49,8 @@ Set-Content (Join-Path $feed "release.html") "<h1>ClaudeTracker v$Version</h1>" 
 
 $assets = @()
 if ($Kind -ne "none") {
-    $assets += @{ name = "ClaudeTracker-Setup.exe"; browser_download_url = "$base/ClaudeTracker-Setup.exe" }
+    $address = if ($Kind -eq "odd-address") { "file:///C:/Windows/win.ini" } else { "$base/ClaudeTracker-Setup.exe" }
+    $assets += @{ name = "ClaudeTracker-Setup.exe"; browser_download_url = $address }
     if ($Kind -ne "unsigned") { $assets += @{ name = "ClaudeTracker-Setup.exe.sig"; browser_download_url = "$base/ClaudeTracker-Setup.exe.sig" } }
 }
 $releases = @()

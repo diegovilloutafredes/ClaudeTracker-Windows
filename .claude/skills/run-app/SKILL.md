@@ -171,7 +171,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.
 $wizard = ".claude\skills\run-app\wizard.ps1"
 powershell -NoProfile -ExecutionPolicy Bypass -File $wizard -Program artifacts\ClaudeTracker-Setup.exe -Tag setup        # as a person would: every page, every button
 powershell -NoProfile -ExecutionPolicy Bypass -File $wizard -Program "$env:LOCALAPPDATA\Programs\ClaudeTracker\unins000.exe" -Tag uninstall
-Start-Process artifacts\ClaudeTracker-Setup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /AppArgs=--background /LOG=$env:TEMP\setup.log"   # as an update runs it
+powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\run-app\setup-run.ps1                                 # as an update runs it: silently, and says what happened
 ```
 
 - `wizard.ps1` prints each page's text and pictures it, and presses Next, Install, Finish,
@@ -189,6 +189,20 @@ Start-Process artifacts\ClaudeTracker-Setup.exe -ArgumentList "/VERYSILENT /SUPP
   runtime is there: it shows the step is wired, not that the install works.
 - **`Start-Process -Wait` on a setup never returns**: it waits for the app the setup
   starts as well. Use `-PassThru` and `.WaitForExit()`.
+- `setup-run.ps1` runs the setup with the updater's own arguments and reports its exit code,
+  its log, whether the app is back, and whether the folder, the apps-list entry and the
+  sign-in entry are whole. Three things to see with it:
+  - plain: exit code 0, "asking it to quit through its signal", the app back with
+    `--background`. With a `bin\Debug` copy running instead of the installed one, the same:
+    the signal reaches whichever copy runs.
+  - `-HoldFile "$env:LOCALAPPDATA\Programs\ClaudeTracker\ClaudeTracker.Core.dll"`: the setup
+    closes the app, cannot replace that file, and stops — exit code 5, "Rolling back
+    changes", "Setup stopped after it had closed ClaudeTracker: starting it again", and
+    the app running again. **If it is not running, start it yourself.**
+  - `-HoldFile <the setup file itself>`: what the updater does with a setup it has checked
+    (it keeps it open for reading until it has run). Exit code 0.
+- `uninstall-refused.ps1` holds the app's mutex and runs the uninstaller: it must give up
+  after 20 seconds with exit code 1 and leave everything where it was.
 
 ## Launch at sign-in
 
@@ -215,23 +229,44 @@ banner, the Settings row and what was saved:
 $skill = ".claude\skills\run-app"
 powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind signed-badly -Setup $env:TEMP\ct-020\ClaudeTracker-Setup.exe
 powershell -NoProfile -ExecutionPolicy Bypass -File $skill\watch-update.ps1          # ~35 s: found, counted down, downloaded, refused
-# ... -Kind unsigned (a link only, nothing downloaded), missing-file ("Couldn't download the update"), none
+# ... -Kind unsigned (a link only, nothing downloaded), missing-file ("Couldn't download the update"),
+#     odd-address (the setup given as a file on this PC: a link only, nothing fetched), none
 & "$env:LOCALAPPDATA\Programs\ClaudeTracker\ClaudeTracker.exe" --quit
 python $skill\update-reset.py                                                      # ALWAYS, with the app closed
 powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind stop
 ```
 
 - Expect, for a badly signed release: "Update available — v0.2.0 found — installing in
-  ~10s" eleven seconds after start, then "auto-update failed (v0.2.0, #1): Update signature
-  is invalid" in the log, "Download" in the banner and in Settings, and the running version
-  unchanged. Each restart tries again; the third failure shows one "Update failed" toast and
-  the fourth start tries nothing, with "Install" there to press.
+  ~10s" eleven seconds after start, "update: v0.2.0 is available; installing it (automatic
+  attempt 1 of 3)" and then "update failed (v0.2.0, automatic attempt 1 of 3): Update
+  signature is invalid" in the log, "Download" in the banner and in Settings, and the
+  running version unchanged.
+- **An attempt is counted when it is set off, not when it fails** (`failedInstallCount` in
+  the settings, saved before the countdown). Each restart sets off the next; quit the app
+  during the countdown and that one still counts. The third that fails shows one "Update
+  failed" toast, and the fourth start tries nothing, with "Install" there to press.
+- After a failure that was not about the signature (`missing-file`), the button says
+  "Install" and pressing it tries again: "update failed (v0.2.0, asked for by hand)". A try
+  by hand is not counted.
+- `odd-feed.py` is a feed whose download stalls, or is larger than any setup of this app:
+  its first lines say how to run it and what to expect.
+- `wake.ps1` tells the app alone that the PC woke up and that the clock changed, against a
+  feed nobody serves: the check on waking must be made again a minute later.
 - **Run `update-reset.py` when done.** A `lastNotifiedUpdateVersion` of 0.2.0 left in the
   user's settings would keep the real 0.2.0 from ever being announced or installed by
   itself. Run it with `autoUpdate` after its name if you switched that off for a test.
 - Nothing here can be signed with the release key, so the app accepting an update cannot be
   seen on this PC. `feed.ps1` says how to serve one signed on the Mac.
 - Do not press "Download": it opens the user's browser.
+
+## Does the popover fit the screen
+
+`fit.ps1 -Scale 1.5` (the popup size in use) measures the popover on screen: its top against
+the work area, the height of the Charts tab's list, and what stands around the list. Set
+`popupScale` to 1.5 and `selectedTab` to 1 in the settings with the app closed, start it
+with a feed that offers an update (`odd-address` installs nothing), and measure before and
+after the banner appears ten seconds in: the list must get shorter by the banner's height
+and the popover stay as tall as it was, inside the screen. Put the two settings back.
 
 ## Cut the app off from the network
 
