@@ -73,7 +73,7 @@
                 </DockPanel>
                 <DockPanel Margin="0,6">
                     <TextBlock x:Name="PopupSizeLabel" DockPanel.Dock="Left" FontSize="14" VerticalAlignment="Center" />
-                    <TextBlock x:Name="PopupSizeValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
+                    <local:QuietText x:Name="PopupSizeValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
                     <Slider x:Name="PopupSizeSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
                 </DockPanel>
                 <CheckBox x:Name="ShowChartsSwitch" Style="{StaticResource Switch}" />
@@ -98,7 +98,7 @@
                 <StackPanel x:Name="ResetToastOptions" Margin="20,0,0,0">
                     <DockPanel Margin="0,6">
                         <TextBlock x:Name="ResetDurationLabel" DockPanel.Dock="Left" FontSize="14" VerticalAlignment="Center" />
-                        <TextBlock x:Name="ResetDurationValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
+                        <local:QuietText x:Name="ResetDurationValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
                         <Slider x:Name="ResetDurationSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
                     </DockPanel>
                     <CheckBox x:Name="ResetPermanentSwitch" Style="{StaticResource Switch}" />
@@ -116,14 +116,14 @@
                 <StackPanel x:Name="PaceOptions">
                     <DockPanel Margin="0,6">
                         <TextBlock x:Name="WarningLabel" DockPanel.Dock="Left" FontSize="14" VerticalAlignment="Center" />
-                        <TextBlock x:Name="WarningValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
+                        <local:QuietText x:Name="WarningValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
                         <Slider x:Name="WarningSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
                     </DockPanel>
                     <CheckBox x:Name="PaceToastSwitch" Style="{StaticResource Switch}" />
                     <StackPanel x:Name="PaceToastOptions" Margin="20,0,0,0">
                         <DockPanel Margin="0,6">
                             <TextBlock x:Name="PaceDurationLabel" DockPanel.Dock="Left" FontSize="14" VerticalAlignment="Center" />
-                            <TextBlock x:Name="PaceDurationValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
+                            <local:QuietText x:Name="PaceDurationValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
                             <Slider x:Name="PaceDurationSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
                         </DockPanel>
                         <CheckBox x:Name="PacePermanentSwitch" Style="{StaticResource Switch}" />

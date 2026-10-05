@@ -187,13 +187,21 @@ internal static class Symbols
 /// reader is not shown it at all (it would spell out a character that has no name), and what
 /// it stands beside — a button's name, a line of text — says what it means.
 /// </summary>
-internal sealed class SymbolText : System.Windows.Controls.TextBlock
+internal sealed class SymbolText : QuietText
 {
     public SymbolText()
     {
         FontFamily = Symbols.Family;
     }
+}
 
+/// <summary>
+/// A text for the eye only: a screen reader is not shown it. For what says again, in a form
+/// that reads badly, something a control beside it already says well — the "30m" beside a
+/// slider that says "30 minutes".
+/// </summary>
+internal class QuietText : System.Windows.Controls.TextBlock
+{
     protected override System.Windows.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => null!;
 }
 

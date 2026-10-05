@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -48,6 +50,10 @@ public partial class PopoverWindow : Window
     /// <summary>"Usage" | "Charts". Kept too, so the tab holding the keyboard keeps it through a poll.</summary>
     private readonly Segmented tabPicker;
     private ContextMenu? accountMenu;
+    /// <summary>The body's own elements, kept from render to render (<see cref="ViewCache"/>).</summary>
+    private readonly ViewCache views = new();
+    /// <summary>What each of the body's buttons does, by the button's name.</summary>
+    private readonly Dictionary<string, Action> actions = [];
 
     /// <summary>The popover's width at 100%, in WPF units.</summary>
     private const double NaturalWidth = 340;
@@ -62,6 +68,7 @@ public partial class PopoverWindow : Window
         charts = new ChartsTab(viewModel);
         tabPicker = new Segmented("popover-tab", index => viewModel.SelectedTab = index);
         TabBar.Content = tabPicker;
+        AutomationProperties.SetHeadingLevel(HeaderTitle, AutomationHeadingLevel.Level1);
         viewModel.Changed += () => { if (IsVisible) Render(); };
         Deactivated += (_, _) => HidePopover();
         unfocused.Tick += (_, _) => HideIfNeverFocused();
@@ -309,7 +316,10 @@ public partial class PopoverWindow : Window
     /// <summary>The popover's own background, which urgency-coloured text must stay legible against.</summary>
     private Rgb BackgroundRgb => Rgb.Gray(isDark ? (byte)0x2C : (byte)0xF9);
 
-    /// <summary>Rebuilds the popover from the view model.</summary>
+    /// <summary>
+    /// Brings the popover up to date with the view model. Its fixed parts are in the XAML and
+    /// only change what they say; the body's parts are kept by name, so they do too.
+    /// </summary>
     internal void Render()
     {
         isDark = SystemTheme.AppsAreDark;
@@ -331,6 +341,8 @@ public partial class PopoverWindow : Window
         if (viewModel.Accounts.Count >= 2 && viewModel.ActiveAccount is { } active)
         {
             AccountMenuButton.Content = active.Label + " ▾";
+            // Read as the account's name: the triangle is for the eye.
+            AutomationProperties.SetName(AccountMenuButton, active.Label);
             AccountMenuButton.Visibility = Visibility.Visible;
         }
         else
@@ -381,37 +393,35 @@ public partial class PopoverWindow : Window
         if (tabs) tabPicker.Show([L.T("Usage"), L.T("Charts")], viewModel.SelectedTab, palette);
         TabBar.Visibility = tabs ? Visibility.Visible : Visibility.Collapsed;
 
+        var body = new List<UIElement>();
         if (tabs && viewModel.SelectedTab == 1)
         {
             // The charts draw from the saved history, so they show before the first fetch too.
-            // The tab is one element that brings itself up to date. It is left where it is
-            // when it is already what the body shows: taken out and put back, its menu would
-            // close and its list scroll back to the top, at every poll.
-            var view = charts.Refresh(palette, MaxChartListHeight());
-            if (Body.Children.Count == 1 && ReferenceEquals(Body.Children[0], view)) return;
-            Body.Children.Clear();
-            Body.Children.Add(view);
-            return;
+            body.Add(charts.Refresh(palette, MaxChartListHeight()));
         }
-
-        Body.Children.Clear();
-        if (!viewModel.IsAuthenticated)
+        else if (!viewModel.IsAuthenticated)
         {
-            if (viewModel.SessionNeedsSignIn) RenderExpired();
-            else RenderSignedOut();
+            if (viewModel.SessionNeedsSignIn) RenderExpired(body);
+            else RenderSignedOut(body);
         }
         else if (viewModel.Usage is not null)
         {
-            RenderUsage();
+            RenderUsage(body);
         }
         else if (viewModel.Error is { } error)
         {
-            RenderError(error);
+            RenderError(body, error);
         }
         else
         {
-            Body.Children.Add(Centered(Text(L.T("Loading…"), 13, Secondary)));
+            body.Add(Centered(Text("loading", L.T("Loading…"), 13, Secondary)));
         }
+        // The body is handed the elements it should hold, and left alone when it holds them
+        // already. An element taken out and put back is a new element to a screen reader, to
+        // the keyboard focus, to an open menu and to a scrolled list — and this runs at every
+        // poll, every few seconds.
+        ViewCache.SetChildren(Body, body);
+        views.Sweep();
     }
 
     /// <summary>
@@ -426,68 +436,74 @@ public partial class PopoverWindow : Window
         return Math.Max(available - 250, 320);
     }
 
-    private void RenderSignedOut()
+    private static readonly Brush Red = new SolidColorBrush(Color.FromRgb(0xD1, 0x3B, 0x3B));
+
+    private void RenderSignedOut(List<UIElement> body)
     {
         if (viewModel.StorageProblem is { } problem)
         {
-            Body.Children.Add(Centered(Text(problem, 13, new SolidColorBrush(Color.FromRgb(0xD1, 0x3B, 0x3B)))));
+            body.Add(Centered(Text("problem", problem, 13, Red)));
             return;
         }
-        Body.Children.Add(Centered(Text(L.T("Not signed in"), 13, Secondary)));
-        Body.Children.Add(Centered(ActionButton(L.T("Add a Claude account"), viewModel.OpenLoginForNewAccount), top: 11));
-        Body.Children.Add(Centered(Text(L.T("Opens Claude in a sign-in window."), 12, Tertiary), top: 11));
+        body.Add(Centered(Text("signed-out", L.T("Not signed in"), 13, Secondary)));
+        body.Add(Centered(ActionButton("add-account", L.T("Add a Claude account"), viewModel.OpenLoginForNewAccount), top: 11));
+        body.Add(Centered(Text("signed-out/how", L.T("Opens Claude in a sign-in window."), 12, Tertiary), top: 11));
     }
 
     /// <summary>
     /// The active account's session was rejected twice. Signing in again reuses this account —
     /// "Add a Claude account" here would create a duplicate and strand its history.
     /// </summary>
-    private void RenderExpired()
+    private void RenderExpired(List<UIElement> body)
     {
-        Body.Children.Add(Centered(Text(L.T("Session expired"), 13, Secondary)));
-        Body.Children.Add(Centered(ActionButton(L.T("Sign in again"), viewModel.SignInAgain), top: 11));
+        body.Add(Centered(Text("expired", L.T("Session expired"), 13, Secondary)));
+        body.Add(Centered(ActionButton("sign-in-again", L.T("Sign in again"), viewModel.SignInAgain), top: 11));
     }
 
-    private void RenderError(string error)
+    private void RenderError(List<UIElement> body, string error)
     {
-        Body.Children.Add(Centered(Text(error, 13, new SolidColorBrush(Color.FromRgb(0xD1, 0x3B, 0x3B)))));
+        body.Add(Centered(Text("failure", error, 13, Red)));
         // Only an authentication failure is fixed by signing in; network and format errors
         // retry by themselves, and the button would suggest otherwise.
         if (viewModel.SessionNeedsSignIn)
         {
-            Body.Children.Add(Centered(ActionButton(L.T("Sign in again"), viewModel.SignInAgain), top: 8));
+            body.Add(Centered(ActionButton("sign-in-again", L.T("Sign in again"), viewModel.SignInAgain), top: 8));
         }
     }
 
-    private void RenderUsage()
+    private void RenderUsage(List<UIElement> body)
     {
         if (viewModel.IsDataStale)
         {
-            Body.Children.Add(Text(L.T("Window reset — refreshing…"), 12, Secondary, bottom: 12));
+            body.Add(Text("stale", L.T("Window reset — refreshing…"), 12, Secondary, bottom: 12));
         }
         else if (viewModel.Error is { } error)
         {
-            Body.Children.Add(Text(error, 12, new SolidColorBrush(Color.FromRgb(0xD9, 0x82, 0x1E)), bottom: 12));
+            body.Add(Text("error", error, 12, new SolidColorBrush(Color.FromRgb(0xD9, 0x82, 0x1E)), bottom: 12));
         }
 
         var first = true;
         foreach (var tracked in viewModel.ShownWindows)
         {
-            Body.Children.Add(WindowRow(tracked, top: first ? 0 : 17));
+            body.Add(WindowRow(tracked, top: first ? 0 : 17));
             first = false;
         }
 
         if (viewModel.Usage?.ExtraUsage is { IsEnabled: true } extra)
         {
-            Body.Children.Add(Text(L.T("Extra Usage"), 13, Primary, weight: FontWeights.Bold, top: 17));
+            body.Add(Text("extra", L.T("Extra Usage"), 13, Primary, weight: FontWeights.Bold, top: 17));
             if (extra is { UsedCredits: { } used, MonthlyLimit: { } limit })
             {
-                Body.Children.Add(Text(Money.SpentOfLimit(used, limit, CultureInfo.CurrentCulture), 12, Secondary, top: 4));
+                body.Add(Text("extra/amount", Money.SpentOfLimit(used, limit, CultureInfo.CurrentCulture), 12, Secondary, top: 4));
             }
         }
     }
 
-    /// <summary>One usage window: title, percentage, bar, and when it resets.</summary>
+    /// <summary>
+    /// One usage window: title, percentage, bar, when it resets, and its pace. What is drawn
+    /// inside is made again at every render; the row itself is kept, and it is the row that a
+    /// screen reader is shown (<see cref="UsageRow"/>).
+    /// </summary>
     private UIElement WindowRow(TrackedWindow tracked, double top)
     {
         var window = tracked.Window;
@@ -496,14 +512,17 @@ public partial class PopoverWindow : Window
         var isStale = viewModel.IsWindowStale(window);
         var percent = isStale ? "0%" : ((int)window.Utilization).ToString(CultureInfo.InvariantCulture) + "%";
         var urgency = window.Utilization / 100.0;
+        var spoken = new List<string> { tracked.Title, percent };
 
-        var panel = new StackPanel { Margin = new Thickness(0, top, 0, 0) };
+        var row = views.Keep<UsageRow>("row/" + tracked.Key);
+        row.Margin = new Thickness(0, top, 0, 0);
+        row.Children.Clear();
         var header = new DockPanel { LastChildFill = false };
-        var percentText = Text(percent, 13, isStale ? Secondary : From(Urgency.TextColor(urgency, isDark, BackgroundRgb)), weight: FontWeights.Bold);
+        var percentText = Plain(percent, 13, isStale ? Secondary : From(Urgency.TextColor(urgency, isDark, BackgroundRgb)), weight: FontWeights.Bold);
         DockPanel.SetDock(percentText, Dock.Right);
         header.Children.Add(percentText);
-        header.Children.Add(Text(tracked.Title, 13, Primary, weight: FontWeights.Bold));
-        panel.Children.Add(header);
+        header.Children.Add(Plain(tracked.Title, 13, Primary, weight: FontWeights.Bold));
+        row.Children.Add(header);
 
         var fraction = isStale ? 0 : window.UtilizationFraction;
         var bar = new Grid { Height = 6, Margin = new Thickness(0, 7, 0, 0) };
@@ -517,14 +536,16 @@ public partial class PopoverWindow : Window
             // The bar keeps the raw gradient; only text needs the legible variant.
             bar.Children.Add(new Border { CornerRadius = new CornerRadius(3), Background = isStale ? Secondary : From(Urgency.Color(urgency)) });
         }
-        panel.Children.Add(bar);
+        row.Children.Add(bar);
 
         // Hidden when stale: the reset has passed, and "Resets in" would be wrong.
         if (window.ResetsAtDate is { } reset && !isStale)
         {
             var now = DateTimeOffset.UtcNow;
-            var absolute = TimeText.ResetTimeText(reset, now, viewModel.Use24HourTime, includeDate: tracked.IsSevenDay);
-            panel.Children.Add(Text(L.F("Resets in %@ · %@", RelativeTime.Until(reset - now), absolute), 12, Secondary, top: 6));
+            var absolute = TimeText.ResetTimeText(reset, now, viewModel.Use24HourTime, includeDate: tracked.IsSevenDay, culture: TimeText.DisplayCulture());
+            var line = L.F("Resets in %@ · %@", RelativeTime.Until(reset - now), absolute);
+            row.Children.Add(Plain(line, 12, Secondary, top: 6));
+            spoken.Add(line);
         }
 
         // No pace on a full window (there is nothing left to project) or a stale one.
@@ -533,26 +554,46 @@ public partial class PopoverWindow : Window
             var now = DateTimeOffset.UtcNow;
             // One band for both lines, so the rate can never be amber over a red outlook.
             var accent = PaceBrush(PaceMath.AccentUrgency(pace.ProjectedHours, window.ResetsAtDate, isStale, now));
-            panel.Children.Add(Text(PaceText.Line(pace.Rate, pace.ProjectedHours, viewModel.PaceRateUnit), 12, accent, top: 5));
+            var line = PaceText.Line(pace.Rate, pace.ProjectedHours, viewModel.PaceRateUnit);
+            row.Children.Add(Plain(line, 12, accent, top: 5));
+            spoken.Add(line);
             if (PaceText.Outlook(pace.ProjectedHours, window.ResetsAtDate, now) is { } outlook)
             {
-                panel.Children.Add(Text(outlook.Message, 12, accent, top: 3));
+                row.Children.Add(Plain(outlook.Message, 12, accent, top: 3));
+                spoken.Add(outlook.Message);
             }
         }
-        return panel;
+        row.Label = string.Join(", ", spoken);
+        return row;
     }
 
     /// <summary>Pace text: neutral while the pace is safe, else the urgency colour's legible variant.</summary>
     private Brush PaceBrush(double urgency) => urgency > 0 ? From(Urgency.TextColor(urgency, isDark, BackgroundRgb)) : Secondary;
 
-    private static TextBlock Text(string text, double size, Brush brush, FontWeight? weight = null, double top = 0, double bottom = 0) => new()
+    /// <summary>A text of the body, kept from render to render under its name.</summary>
+    private TextBlock Text(string name, string text, double size, Brush brush, FontWeight? weight = null, double top = 0, double bottom = 0)
+    {
+        var block = views.Keep<TextBlock>(name);
+        block.Text = text;
+        block.FontSize = size;
+        block.Foreground = brush;
+        block.FontWeight = weight ?? FontWeights.Normal;
+        block.TextWrapping = TextWrapping.Wrap;
+        block.Margin = new Thickness(0, top, 0, bottom);
+        block.HorizontalAlignment = HorizontalAlignment.Stretch;
+        block.TextAlignment = TextAlignment.Left;
+        return block;
+    }
+
+    /// <summary>A text inside a usage row: made anew each time, since only its row is anyone's to keep track of.</summary>
+    private static TextBlock Plain(string text, double size, Brush brush, FontWeight? weight = null, double top = 0) => new()
     {
         Text = text,
         FontSize = size,
         Foreground = brush,
         FontWeight = weight ?? FontWeights.Normal,
         TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, top, 0, bottom),
+        Margin = new Thickness(0, top, 0, 0),
     };
 
     private static FrameworkElement Centered(FrameworkElement element, double top = 0)
@@ -563,11 +604,61 @@ public partial class PopoverWindow : Window
         return element;
     }
 
-    private static Button ActionButton(string label, Action action)
+    /// <summary>
+    /// A button of the body, kept under its name. Its handler is attached once and looks up
+    /// what to do: attached at every render, a press would run as many times as it was drawn.
+    /// </summary>
+    private Button ActionButton(string name, string label, Action action)
     {
-        var button = new Button { Content = label, Padding = new Thickness(16, 7, 16, 7), FontSize = 13 };
-        button.Click += (_, _) => action();
+        var button = views.Keep<Button>(name);
+        if (button.Tag is null)
+        {
+            button.Tag = name;
+            button.Click += (_, _) => actions[name]();
+        }
+        actions[name] = action;
+        button.Content = label;
+        button.Padding = new Thickness(16, 7, 16, 7);
+        button.FontSize = 13;
         return button;
+    }
+}
+
+/// <summary>
+/// One usage window in the popover. To the eye it is a title, a number, a bar and a line or
+/// three; to a screen reader it is one thing, read in the order that makes sense: the
+/// window, its percentage, when it resets, its pace. (Left to its parts, the percentage was
+/// read before the window it belongs to.) The Mac app's row is one combined element too.
+/// </summary>
+internal sealed class UsageRow : StackPanel
+{
+    private string label = "";
+
+    /// <summary>What a screen reader reads for the whole row.</summary>
+    public string Label
+    {
+        get => label;
+        set
+        {
+            if (label == value) return;
+            var before = label;
+            label = value;
+            // Told to whoever is on the row, so it reads what the row now says; nothing is announced.
+            UIElementAutomationPeer.FromElement(this)?.RaisePropertyChangedEvent(AutomationElementIdentifiers.NameProperty, before, value);
+        }
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new Peer(this);
+
+    private sealed class Peer(UsageRow owner) : FrameworkElementAutomationPeer(owner)
+    {
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Text;
+        protected override string GetClassNameCore() => nameof(UsageRow);
+        protected override string GetNameCore() => owner.Label;
+        // Its texts are the row's own words already: read once, as one.
+        protected override List<AutomationPeer> GetChildrenCore() => [];
+        protected override bool IsContentElementCore() => true;
+        protected override bool IsControlElementCore() => true;
     }
 }
 

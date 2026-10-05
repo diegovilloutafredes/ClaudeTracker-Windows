@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -28,6 +29,22 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Development aid: run this copy in another language without changing Windows'.
+        // "es" changes the words; "es-CL" also the regional format (dates, numbers).
+        if (ArgumentAfter(e.Args, "--language") is { } language)
+        {
+            try
+            {
+                var culture = CultureInfo.GetCultureInfo(language);
+                CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.CurrentUICulture = culture;
+                if (!culture.IsNeutralCulture) CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = culture;
+            }
+            catch (CultureNotFoundException)
+            {
+                // Not a language Windows knows: the copy runs as if the switch were not there.
+            }
+        }
 
         // One instance per user session: a second copy would poll the same accounts and fight
         // over the same browser profiles. It asks the running copy to show itself instead.

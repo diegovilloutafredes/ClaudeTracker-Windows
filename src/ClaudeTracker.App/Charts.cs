@@ -237,6 +237,7 @@ internal sealed class Segmented : Border
         {
             if (!showing) select(index);
         };
+        AutomationProperties.SetAutomationId(option, $"{group}-{index}");
         return option;
     }
 
@@ -301,6 +302,8 @@ internal sealed class ChartsTab
             ToolTip = L.T("Chart content"),
         };
         AutomationProperties.SetName(filter, L.T("Chart content"));
+        // A name that does not change with the language, for whoever drives the app from a script.
+        AutomationProperties.SetAutomationId(filter, "ChartContent");
         filter.Click += (_, _) => OpenMenu();
 
         viewer = new ScrollViewer
@@ -434,6 +437,7 @@ internal sealed class ChartsTab
         title.FontSize = 12;
         title.FontWeight = FontWeights.SemiBold;
         title.Foreground = palette.Primary;
+        AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level2);
         var parts = new List<UIElement> { title };
         if (viewModel.ChartShowUtilization)
         {
@@ -462,10 +466,12 @@ internal sealed class ChartsTab
         return panel;
     }
 
-    private TextBlock Collecting(string name, double height, Palette palette)
+    /// <param name="chart">The chart this stands in for, said first: its heading is for the eye only.</param>
+    private TextBlock Collecting(string name, double height, Palette palette, string? chart = null)
     {
         var text = views.Keep<TextBlock>(name);
         text.Text = L.T("Collecting…");
+        AutomationProperties.SetName(text, chart is null ? text.Text : chart + ", " + text.Text);
         text.FontSize = 11;
         text.Foreground = palette.Tertiary;
         text.Height = height;
@@ -474,22 +480,27 @@ internal sealed class ChartsTab
         return text;
     }
 
-    /// <summary>A chart's heading: its name on the left, its figures on the right.</summary>
+    /// <summary>
+    /// A chart's heading: its name on the left, its figures on the right. Both are for the
+    /// eye: the chart under them says its own name and the same figures in whole words
+    /// ("peak", not "pk"), so a screen reader is given the chart and not these.
+    /// </summary>
     private (DockPanel Row, TextBlock Figures) Heading(string name, string label, Palette palette)
     {
-        var figures = views.Keep<TextBlock>(name + "/figures");
+        var title = views.Keep<QuietText>(name + "/name");
+        title.Text = label;
+        title.FontSize = 11;
+        title.Foreground = palette.Secondary;
+        DockPanel.SetDock(title, Dock.Left);
+        var figures = views.Keep<QuietText>(name + "/figures");
         figures.FontSize = 10.5;
         figures.Foreground = palette.Secondary;
         figures.VerticalAlignment = VerticalAlignment.Bottom;
         DockPanel.SetDock(figures, Dock.Right);
-        var title = views.Keep<TextBlock>(name + "/name");
-        title.Text = label;
-        title.FontSize = 11;
-        title.Foreground = palette.Secondary;
         var row = views.Keep<DockPanel>(name + "/heading");
         row.Margin = new Thickness(0, 12, 0, 6);
         row.LastChildFill = false;
-        ViewCache.SetChildren(row, [figures, title]);
+        ViewCache.SetChildren(row, [title, figures]);
         return (row, figures);
     }
 
@@ -505,17 +516,18 @@ internal sealed class ChartsTab
         if (pairs.Count < 2)
         {
             figures.Text = "";
-            ViewCache.SetChildren(panel, [heading, Collecting(name + "/collecting", 50, palette)]);
+            ViewCache.SetChildren(panel, [heading, Collecting(name + "/collecting", 50, palette, label)]);
             return panel;
         }
 
         var span = (upper - lower).TotalSeconds;
         var use24Hour = viewModel.Use24HourTime;
+        var dates = TimeText.DisplayCulture();
         var stats = ChartLayout.Stats(pairs)!.Value;
         var chart = views.Keep<MiniChart>(name + "/chart");
         chart.Show(new Plot(lower, upper, top,
                             [new ChartLine(Charts.Downsample(pairs, Charts.Buckets, lower, upper), color, 1.5, Fill: Palette.With(color, 0.15))],
-                            ticks, axis, ChartLayout.TimeTicks(lower, upper), time => ChartLayout.TimeLabel(time, span, use24Hour), palette.Ink));
+                            ticks, axis, ChartLayout.TimeTicks(lower, upper), time => ChartLayout.TimeLabel(time, span, use24Hour, culture: dates), palette.Ink));
         AutomationProperties.SetName(chart, label);
         AutomationProperties.SetHelpText(chart, L.F("now %@, peak %@, average %@", format(stats.Now), format(stats.Peak), format(Math.Round(stats.Average))));
 
@@ -526,7 +538,7 @@ internal sealed class ChartsTab
             var reading = pointer is { } moment ? Charts.NearestSample(pairs, moment, span) : null;
             chart.Rule = reading?.Time;
             var first = reading is { } found
-                ? L.F("@ %@  %@", format(found.Value), ChartLayout.TimeLabel(found.Time, span, use24Hour))
+                ? L.F("@ %@  %@", format(found.Value), ChartLayout.TimeLabel(found.Time, span, use24Hour, culture: dates))
                 : L.F("now %@", format(stats.Now));
             figures.Text = L.F("%@  pk %@  avg %@", first, format(stats.Peak), format(Math.Round(stats.Average)));
             chart.InvalidateVisual();
@@ -554,12 +566,13 @@ internal sealed class ChartsTab
         figures.Text = resting;
         if (pairs.Count < 2)
         {
-            ViewCache.SetChildren(panel, [heading, Collecting(name + "/collecting", 60, palette)]);
+            ViewCache.SetChildren(panel, [heading, Collecting(name + "/collecting", 60, palette, L.T("Forecast"))]);
             return panel;
         }
 
         var span = (frame.End - frame.WindowStart).TotalSeconds;
         var use24Hour = viewModel.Use24HourTime;
+        var dates = TimeText.DisplayCulture();
         var lines = new List<ChartLine>
         {
             new([(frame.WindowStart, 0), (frame.Reset, 100)], Palette.With(palette.Ink, 0.4), 1, Dash: [4, 4]),
@@ -572,7 +585,7 @@ internal sealed class ChartsTab
         var chart = views.Keep<MiniChart>(name + "/chart");
         chart.Show(new Plot(frame.WindowStart, frame.End, Top: 105, lines, YTicks: [0, 25, 50, 75, 100],
                             value => ((int)value).ToString(CultureInfo.InvariantCulture) + "%",
-                            ChartLayout.TimeTicks(frame.WindowStart, frame.End), time => ChartLayout.TimeLabel(time, span, use24Hour), palette.Ink));
+                            ChartLayout.TimeTicks(frame.WindowStart, frame.End), time => ChartLayout.TimeLabel(time, span, use24Hour, culture: dates), palette.Ink));
         AutomationProperties.SetName(chart, L.T("Forecast chart"));
         AutomationProperties.SetHelpText(chart, L.F("now %@", ((int)frame.LastValue).ToString(CultureInfo.InvariantCulture) + "%"));
 
@@ -586,7 +599,7 @@ internal sealed class ChartsTab
             figures.Text = reading is { } found
                 ? L.F("actual %d%%  expected %d%%  %@", (int)found.Value,
                       (int)ChartLayout.ExpectedPercent(found.Time, frame.WindowStart, frame.Reset),
-                      ChartLayout.TimeLabel(found.Time, span, use24Hour))
+                      ChartLayout.TimeLabel(found.Time, span, use24Hour, culture: dates))
                 : resting;
             chart.InvalidateVisual();
         }

@@ -46,6 +46,13 @@ internal sealed class TrayIcon : IDisposable
         {
             if (e.Button == WinForms.MouseButtons.Left) Clicked?.Invoke();
         };
+        // Enter on the icon, from the keyboard or a screen reader, arrives as a double click.
+        // It shows the popover rather than toggling it: the click that began a real double
+        // click has already opened it, and a toggle would close it again.
+        notifyIcon.MouseDoubleClick += (_, e) =>
+        {
+            if (e.Button == WinForms.MouseButtons.Left) OpenRequested?.Invoke();
+        };
         openItem.Click += (_, _) => OpenRequested?.Invoke();
         settingsItem.Click += (_, _) => SettingsRequested?.Invoke();
         quitItem.Click += (_, _) => QuitRequested?.Invoke();
@@ -54,6 +61,12 @@ internal sealed class TrayIcon : IDisposable
         menu.Items.Add(settingsItem);
         menu.Items.Add(quitItem);
         notifyIcon.ContextMenuStrip = menu;
+
+        // The icon first appears under the app's name alone. Windows keeps the first tooltip
+        // an icon ever had: its Settings list the icon under it for good ("Other system tray
+        // icons"), and a screen reader is read the one it was added with before the current
+        // one. Added while still starting up, the icon was "Claude Tracker, signed out" there.
+        Update("…", null, L.T("Claude Tracker"));
     }
 
     /// <summary>Redraws the icon if what it shows changed, and updates the tooltip and menu texts.</summary>

@@ -9,6 +9,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using ClaudeTracker.Core;
+using WinForms = System.Windows.Forms;
 
 namespace ClaudeTracker.App;
 
@@ -40,10 +41,17 @@ public partial class SettingsWindow : Window
         this.viewModel = viewModel;
         InitializeComponent();
         MaxHeight = SystemParameters.WorkArea.Height;
+        // The window is as tall as what it shows, and grows downwards when a section opens.
+        SizeChanged += (_, _) => KeepOnScreen();
 
         var version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "";
         Title = L.F("Settings · v%@", version);
         AccountHeader.Text = L.T("Account");
+        // A screen reader moves from section to section by its headings.
+        foreach (var header in new[] { AccountHeader, DisplayHeader, ResetHeader, PaceHeader })
+        {
+            AutomationProperties.SetHeadingLevel(header, AutomationHeadingLevel.Level1);
+        }
         AddAccountButton.Content = L.T("Add account");
         LaunchAtLoginSwitch.Content = L.T("Launch when I sign in to Windows");
         AutoUpdateSwitch.Content = L.T("Auto-install updates");
@@ -171,6 +179,22 @@ public partial class SettingsWindow : Window
             if (ReferenceEquals(current, this)) current = null;
         };
         Refresh();
+    }
+
+    /// <summary>
+    /// Moves the window up when it has grown past the bottom of the screen. It opens in the
+    /// middle of the screen at the height of what it shows; switching pace alerts on adds
+    /// six rows underneath, and a window grows from its top edge: the last of them, with
+    /// their Test button, landed below the taskbar.
+    /// </summary>
+    private void KeepOnScreen()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero || WindowState != WindowState.Normal) return;
+        var area = WinForms.Screen.FromHandle(handle).WorkingArea;
+        var scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
+        var (top, bottom) = (area.Top / scale, area.Bottom / scale);
+        if (Top + ActualHeight > bottom) Top = Math.Max(top, bottom - ActualHeight);
     }
 
     /// <summary>
@@ -323,7 +347,7 @@ public partial class SettingsWindow : Window
         PaceOptions.Visibility = viewModel.NotifyPace ? Visibility.Visible : Visibility.Collapsed;
         WarningSlider.Value = viewModel.PaceWarningMinutes;
         WarningValue.Text = L.F("%lldm", (int)viewModel.PaceWarningMinutes);
-        AutomationProperties.SetHelpText(WarningSlider, WarningValue.Text);
+        AutomationProperties.SetHelpText(WarningSlider, AlertSettings.MinutesInWords((int)viewModel.PaceWarningMinutes));
         PaceToastSwitch.IsChecked = viewModel.PaceToastEnabled;
         PaceToastOptions.Visibility = viewModel.PaceToastEnabled ? Visibility.Visible : Visibility.Collapsed;
         ShowDuration(PaceDurationSlider, PaceDurationValue, PaceDurationLabel, viewModel.PaceToastDuration, viewModel.PaceToastPermanent);
@@ -339,7 +363,7 @@ public partial class SettingsWindow : Window
         slider.IsEnabled = !permanent;
         value.Text = permanent ? L.T("∞") : L.F("%llds", (int)seconds);
         label.Opacity = permanent ? 0.5 : 1;
-        AutomationProperties.SetHelpText(slider, permanent ? L.T("Stay until dismissed") : value.Text);
+        AutomationProperties.SetHelpText(slider, permanent ? L.T("Stay until dismissed") : AlertSettings.SecondsInWords((int)seconds));
     }
 
     private static int IndexOf<T>(IReadOnlyList<T> all, T value)
@@ -382,44 +406,14 @@ public partial class SettingsWindow : Window
 
     private UIElement EmptyAccountRow()
     {
-        var row = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 4, 0, 4) };
         var signIn = new Button { Content = L.T("Sign in"), Padding = new Thickness(14, 5, 14, 5), FontSize = 13 };
         signIn.Click += (_, _) => viewModel.OpenLoginForNewAccount();
-        DockPanel.SetDock(signIn, Dock.Right);
-        row.Children.Add(signIn);
-        row.Children.Add(Dot(Red));
-        row.Children.Add(new TextBlock { Text = L.T("Not signed in"), FontSize = 14, Foreground = Primary, VerticalAlignment = VerticalAlignment.Center });
-        return row;
+        var said = new TextBlock { Text = L.T("Not signed in"), FontSize = 14, Foreground = Primary, VerticalAlignment = VerticalAlignment.Center };
+        return Row(Dot(Red), said, [signIn], margin: 4);
     }
 
     private UIElement AccountRow(Account account, bool isActive, bool needsSignIn)
     {
-        var row = new DockPanel { Margin = new Thickness(0, 6, 0, 6) };
-
-        // Buttons from the right edge inwards: remove, rename, then what applies to this row.
-        var remove = IconButton("", L.T("Sign out & remove"), L.T("Sign out & remove account"), Red);
-        remove.Click += (_, _) => ConfirmRemoval(account);
-        Dock(row, remove);
-        var rename = IconButton("", L.T("Rename account"), L.T("Rename account"), Secondary);
-        rename.Click += (_, _) => AskForName(account);
-        Dock(row, rename);
-        if (!isActive)
-        {
-            var switchTo = new Button { Content = L.T("Switch"), Padding = new Thickness(12, 4, 12, 4), FontSize = 13, Margin = new Thickness(8, 0, 0, 0) };
-            switchTo.Click += (_, _) => viewModel.SwitchAccount(account.Id);
-            Dock(row, switchTo);
-        }
-        if (needsSignIn)
-        {
-            var signIn = new Button { Content = L.T("Sign in again"), Padding = new Thickness(12, 4, 12, 4), FontSize = 13, Margin = new Thickness(8, 0, 0, 0) };
-            signIn.Click += (_, _) => viewModel.SignInAgain();
-            Dock(row, signIn);
-        }
-
-        var dot = Dot(isActive ? Green : Gray(isDark ? (byte)0x6A : (byte)0xB4));
-        DockPanel.SetDock(dot, System.Windows.Controls.Dock.Left);
-        row.Children.Add(dot);
-
         var lines = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var title = new StackPanel { Orientation = Orientation.Horizontal };
         title.Children.Add(new TextBlock { Text = account.Label, FontSize = 14, Foreground = Primary, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -428,14 +422,51 @@ public partial class SettingsWindow : Window
         if (account.Email is { Length: > 0 } email) lines.Children.Add(Caption(email));
         // Only an organisation's plan has an organisation worth naming; a personal one repeats the person.
         if (account.OrgName is { Length: > 0 } organisation && account.IsOrganizationPlan) lines.Children.Add(Caption(organisation));
-        row.Children.Add(lines);
-        return row;
 
-        static void Dock(DockPanel panel, UIElement element)
+        // Left to right: what applies to this row, then rename, then remove at the edge.
+        var buttons = new List<Button>();
+        if (needsSignIn)
         {
-            DockPanel.SetDock(element, System.Windows.Controls.Dock.Right);
-            panel.Children.Add(element);
+            var signIn = new Button { Content = L.T("Sign in again"), Padding = new Thickness(12, 4, 12, 4), FontSize = 13, Margin = new Thickness(8, 0, 0, 0) };
+            signIn.Click += (_, _) => viewModel.SignInAgain();
+            buttons.Add(signIn);
         }
+        if (!isActive)
+        {
+            var switchTo = new Button { Content = L.T("Switch"), Padding = new Thickness(12, 4, 12, 4), FontSize = 13, Margin = new Thickness(8, 0, 0, 0) };
+            switchTo.Click += (_, _) => viewModel.SwitchAccount(account.Id);
+            buttons.Add(switchTo);
+        }
+        var rename = IconButton("\uE70F", L.T("Rename account"), L.T("Rename account"), Secondary);
+        rename.Click += (_, _) => AskForName(account);
+        buttons.Add(rename);
+        var remove = IconButton("\uE74D", L.T("Sign out & remove"), L.T("Sign out & remove account"), Red);
+        remove.Click += (_, _) => ConfirmRemoval(account);
+        buttons.Add(remove);
+
+        return Row(Dot(isActive ? Green : Gray(isDark ? (byte)0x6A : (byte)0xB4)), lines, buttons, margin: 6);
+    }
+
+    /// <summary>
+    /// One line of the account list: a dot, what it is, its buttons. Put into the row in that
+    /// order because that is the order a screen reader reads them in and the Tab key visits
+    /// them in — docked from the right edge inwards, "Sign out &amp; remove account" came
+    /// before the name of the account it would remove.
+    /// </summary>
+    private static Grid Row(UIElement dot, FrameworkElement said, IReadOnlyList<Button> buttons, double margin)
+    {
+        var row = new Grid { Margin = new Thickness(0, margin, 0, margin) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var button in buttons) actions.Children.Add(button);
+        Grid.SetColumn(said, 1);
+        Grid.SetColumn(actions, 2);
+        row.Children.Add(dot);
+        row.Children.Add(said);
+        row.Children.Add(actions);
+        return row;
     }
 
     private static Ellipse Dot(Brush fill) => new()
