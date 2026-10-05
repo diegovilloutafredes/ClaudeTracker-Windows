@@ -479,6 +479,101 @@ public class WindowsOnlyTests
     public void AStoredWarningThresholdIsBroughtIntoRange(double? stored, double expected) =>
         Assert.Equal(expected, AlertSettings.WarningMinutes(stored));
 
+    // MARK: - Chart arithmetic (CT-006)
+    //
+    // The Mac app computes these inside its chart views. The values are what its code gives.
+
+    private static readonly DateTimeOffset Noon = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+
+    private static List<(DateTimeOffset Time, double Value)> Readings(params (double HoursAfterNoon, double Value)[] samples) =>
+        samples.Select(s => (Noon.AddHours(s.HoursAfterNoon), s.Value)).ToList();
+
+    [Fact]
+    public void AForecastRunsFromTheWindowsStartToItsReset()
+    {
+        // A 5-hour window resetting at 17:00, at 40 % by 14:00, filling at 10 %/hr: full at 20:00.
+        var forecast = ChartLayout.ForecastFor(Readings((1, 20), (2, 40)), Noon.AddHours(5), 5 * 3600, liveUtilization: 41, ratePerHour: 10);
+        Assert.Equal(Noon, forecast.WindowStart);
+        Assert.Equal(Noon.AddHours(2), forecast.LastTime);
+        Assert.Equal(40, forecast.LastValue);
+        Assert.Equal(Noon.AddHours(8), forecast.ProjectedFull);
+        // The projection lands after the reset, so the chart runs on to it.
+        Assert.Equal(Noon.AddHours(8), forecast.End);
+    }
+
+    [Fact]
+    public void AForecastThatFillsBeforeTheResetStillEndsAtTheReset()
+    {
+        var forecast = ChartLayout.ForecastFor(Readings((1, 20), (2, 40)), Noon.AddHours(5), 5 * 3600, 40, ratePerHour: 60);
+        Assert.Equal(Noon.AddHours(3), forecast.ProjectedFull);
+        Assert.Equal(Noon.AddHours(5), forecast.End);
+    }
+
+    [Fact]
+    public void AForecastHasNoProjectionWithoutAPaceAReadingOrRoomLeft()
+    {
+        var reset = Noon.AddHours(5);
+        Assert.Null(ChartLayout.ForecastFor(Readings((2, 40)), reset, 5 * 3600, 40, ratePerHour: null).ProjectedFull);
+        Assert.Null(ChartLayout.ForecastFor(Readings((2, 100)), reset, 5 * 3600, 100, ratePerHour: 10).ProjectedFull);
+        var empty = ChartLayout.ForecastFor([], reset, 5 * 3600, liveUtilization: 12, ratePerHour: 10);
+        Assert.Null(empty.ProjectedFull);
+        Assert.Null(empty.LastTime);
+        Assert.Equal(12, empty.LastValue);   // nothing recorded in this window yet: the live number
+        Assert.Equal(reset, empty.End);
+    }
+
+    [Theory]
+    [InlineData(-1.0, 0.0)]     // before the window began
+    [InlineData(0.0, 0.0)]
+    [InlineData(1.25, 25.0)]
+    [InlineData(5.0, 100.0)]
+    [InlineData(9.0, 100.0)]    // past the reset
+    public void AnEvenPaceIsAStraightLineFromNothingToFull(double hoursAfterStart, double expected) =>
+        Assert.Equal(expected, ChartLayout.ExpectedPercent(Noon.AddHours(hoursAfterStart), Noon, Noon.AddHours(5)));
+
+    [Fact]
+    public void TheFiguresAreTheLatestTheHighestAndTheAverage()
+    {
+        Assert.Null(ChartLayout.Stats([]));
+        Assert.Equal((30, 50, 100.0 / 3), ChartLayout.Stats(Readings((0, 20), (1, 50), (2, 30))));
+        // A pace chart leaves a fifth of headroom, and never collapses to nothing.
+        Assert.Equal(60, ChartLayout.PaceScaleTop(Readings((0, 20), (1, 50), (2, 30))));
+        Assert.Equal(1, ChartLayout.PaceScaleTop(Readings((0, 0.2))));
+        Assert.Equal(1, ChartLayout.PaceScaleTop([]));
+    }
+
+    [Fact]
+    public void ASeriesIsItsOwnSamplesFromACutoffOn()
+    {
+        var history = new[]
+        {
+            new UsageDataPoint(Noon, 10, 3, null, null),
+            new UsageDataPoint(Noon.AddMinutes(5), null, 4, null, null),   // the 5-hour window was missing here
+            new UsageDataPoint(Noon.AddMinutes(10), 12, 5, null, null),
+        };
+        Assert.Equal([(Noon, 10.0), (Noon.AddMinutes(10), 12.0)], ChartLayout.Pairs(history, p => p.Utilization("five_hour"), Noon));
+        Assert.Equal([(Noon.AddMinutes(10), 5.0)], ChartLayout.Pairs(history, p => p.Utilization("seven_day"), Noon.AddMinutes(6)));
+    }
+
+    [Fact]
+    public void ThePointerSnapsToTheMinute()
+    {
+        Assert.Equal(Noon.AddMinutes(7), ChartLayout.QuantizeToMinute(Noon.AddMinutes(7).AddSeconds(29)));
+        Assert.Equal(Noon.AddMinutes(8), ChartLayout.QuantizeToMinute(Noon.AddMinutes(7).AddSeconds(31)));
+    }
+
+    [Fact]
+    public void ALabelIsAClockTimeWithinADayAndADateBeyond()
+    {
+        var english = new System.Globalization.CultureInfo("en-US");
+        var spanish = new System.Globalization.CultureInfo("es-CL");
+        var moment = Noon.AddHours(5.5);    // 17:30 UTC
+        Assert.Equal("17:30", ChartLayout.TimeLabel(moment, 5 * 3600, use24Hour: true, TimeZoneInfo.Utc, english));
+        Assert.Equal("5:30 PM", ChartLayout.TimeLabel(moment, 24 * 3600, use24Hour: false, TimeZoneInfo.Utc, english));
+        Assert.Equal("Oct 5", ChartLayout.TimeLabel(moment, 7 * 24 * 3600, use24Hour: true, TimeZoneInfo.Utc, english));
+        Assert.Equal("5 oct", ChartLayout.TimeLabel(moment, 7 * 24 * 3600, use24Hour: true, TimeZoneInfo.Utc, spanish).TrimEnd('.'));
+    }
+
     // MARK: - Extra usage and popup size
 
     [Theory]
