@@ -7,10 +7,9 @@ It is the Windows port of [ClaudeTracker for macOS](https://github.com/diegovill
 ![.NET](https://img.shields.io/badge/.NET-10-purple)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> **Work in progress — there is nothing to install yet.** This repository holds the app's
-> platform-neutral core (the usage logic, the claude.ai payload decoders and their tests),
-> ported from the macOS app, and an unreleased build of the tray app on top of it: tray
-> icon, popover with usage rows and charts, sign-in, several accounts, alerts, settings.
+> **Not released yet.** The app is built and runs — tray icon, popover with usage rows and
+> charts, sign-in, several accounts, alerts, settings, a setup with updates — and its first
+> release has not been published. Until it is, build it from source (below).
 
 ## What it will do
 
@@ -24,6 +23,23 @@ The same things the macOS app does, shown the Windows way:
 No API key: you sign in to claude.ai once in a window the app opens, and it reads your
 usage with that session.
 
+## Install
+
+Once there is a release, one line in PowerShell installs it for your user, with no
+administrator prompt:
+
+```powershell
+irm https://raw.githubusercontent.com/diegovilloutafredes/ClaudeTracker-Windows/main/scripts/install.ps1 | iex
+```
+
+Or download `ClaudeTracker-Setup.exe` from the latest release and run it. The setup is not
+code-signed, so Windows shows "Windows protected your PC" for a copy saved by a browser:
+choose **More info**, then **Run anyway**. The one line above is not stopped.
+
+The app starts when you sign in to Windows and keeps itself up to date; both can be
+switched off in its Settings. Uninstalling it from Windows' Settings keeps your accounts
+and history, and tells you where they are.
+
 ## Build from source
 
 Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
@@ -33,6 +49,7 @@ git clone https://github.com/diegovilloutafredes/ClaudeTracker-Windows.git
 cd ClaudeTracker-Windows
 dotnet test
 dotnet run --project src/ClaudeTracker.App    # the popover opens beside the tray
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1   # the setup, in artifacts\ (needs Inno Setup 6)
 ```
 
 Windows 11 puts a new tray icon in the overflow menu (the `^` beside the clock); drag it

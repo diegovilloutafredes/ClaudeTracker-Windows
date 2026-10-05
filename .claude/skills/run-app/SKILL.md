@@ -1,6 +1,6 @@
 ---
 name: run-app
-description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, hover and click with the real pointer where that is not enough, cut it off from the network to test recovery, measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
+description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, hover and click with the real pointer where that is not enough, run its setup and uninstaller as a person would, test launch at sign-in and updates without a release, cut it off from the network to test recovery, measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
 ---
 
 # Running and checking the Windows app
@@ -122,6 +122,84 @@ charts' menu once read "5-Hour, 7-Day, Utilization…" to UI Automation while ev
 drawn as an empty box (it had taken the symbol font of the button it hangs from).
 `look.ps1` and `pointer.ps1` both picture menus and tooltips, which a plain copy of the
 screen leaves out.
+
+## The installed copy, the setup, the uninstaller
+
+The user may have the app installed (`%LocalAppData%\Programs\ClaudeTracker`). That copy and
+one in a build folder share one single-instance lock and one set of data, so only one runs:
+`ClaudeTracker.exe --quit` (either copy's exe) closes whichever is running. **When you are
+done, leave the installed copy running** (`ClaudeTracker.exe --background`), or the user's
+tray icon is simply gone. Launch at sign-in and installing updates exist only in an
+installed copy: test those there, not in `bin\Debug`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1                       # artifacts\ClaudeTracker-Setup.exe
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.2.0 -OutputDir $env:TEMP\ct-020   # a "newer release" to upgrade to
+
+$wizard = ".claude\skills\run-app\wizard.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File $wizard -Program artifacts\ClaudeTracker-Setup.exe -Tag setup        # as a person would: every page, every button
+powershell -NoProfile -ExecutionPolicy Bypass -File $wizard -Program "$env:LOCALAPPDATA\Programs\ClaudeTracker\unins000.exe" -Tag uninstall
+Start-Process artifacts\ClaudeTracker-Setup.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /AppArgs=--background /LOG=$env:TEMP\setup.log"   # as an update runs it
+```
+
+- `wizard.ps1` prints each page's text and pictures it, and presses Next, Install, Finish,
+  Yes and OK — never Cancel, Back or No. Inno Setup's controls show to UI Automation as
+  panes that cannot be "invoked", so it sends them the message a click sends.
+- **Back the user's data up first** (`%AppData%\ClaudeTracker`, and
+  `%LocalAppData%\ClaudeTracker\WebView2` with the app closed): neither the setup nor the
+  uninstaller touches it, and a mistake in the script is how that would stop being true.
+  Afterwards compare: the three JSON files byte for byte, and the browser profile's
+  `Cookies` still there.
+- After an uninstall, check that these are gone: the folder, the Start menu shortcut
+  (`%AppData%\Microsoft\Windows\Start Menu\Programs\ClaudeTracker.lnk`), the apps-list key
+  (`HKCU\…\Uninstall\{5E0B5C2D-…}_is1`), and both sign-in values (next section).
+- `/WebView2=force` makes the setup run Microsoft's WebView2 installer even though the
+  runtime is there: it shows the step is wired, not that the install works.
+- **`Start-Process -Wait` on a setup never returns**: it waits for the app the setup
+  starts as well. Use `-PassThru` and `.WaitForExit()`.
+
+## Launch at sign-in
+
+Two values under `HKCU\Software\Microsoft\Windows\CurrentVersion`: `Run\ClaudeTracker`
+(the command) and `Explorer\StartupApproved\Run\ClaudeTracker` (Windows' note that the user
+switched the entry off: first byte odd). `startup-apps.ps1` flips the switch in Windows' own
+Settings > Apps > Startup, as a person would, and closes Settings again:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\run-app\startup-apps.ps1 -Set off   # or on, or read
+```
+
+Then open the app's Settings (it looks again each time it opens) or restart the app: its
+switch must follow, and it must not write the entry back. To see what a sign-in does
+without signing out, run the entry's own command line: the app must start with no window.
+
+## Updates without a release
+
+`feed.ps1` serves a stand-in for the repo's releases from this PC, and `watch-update.ps1`
+restarts the **installed** copy against it and reports the toasts, the log, the popover's
+banner, the Settings row and what was saved:
+
+```powershell
+$skill = ".claude\skills\run-app"
+powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind signed-badly -Setup $env:TEMP\ct-020\ClaudeTracker-Setup.exe
+powershell -NoProfile -ExecutionPolicy Bypass -File $skill\watch-update.ps1          # ~35 s: found, counted down, downloaded, refused
+# ... -Kind unsigned (a link only, nothing downloaded), missing-file ("Couldn't download the update"), none
+& "$env:LOCALAPPDATA\Programs\ClaudeTracker\ClaudeTracker.exe" --quit
+python $skill\update-reset.py                                                      # ALWAYS, with the app closed
+powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind stop
+```
+
+- Expect, for a badly signed release: "Update available — v0.2.0 found — installing in
+  ~10s" eleven seconds after start, then "auto-update failed (v0.2.0, #1): Update signature
+  is invalid" in the log, "Download" in the banner and in Settings, and the running version
+  unchanged. Each restart tries again; the third failure shows one "Update failed" toast and
+  the fourth start tries nothing, with "Install" there to press.
+- **Run `update-reset.py` when done.** A `lastNotifiedUpdateVersion` of 0.2.0 left in the
+  user's settings would keep the real 0.2.0 from ever being announced or installed by
+  itself. Run it with `autoUpdate` after its name if you switched that off for a test.
+- Nothing here can be signed with the release key, so the app accepting an update cannot be
+  seen on this PC. `feed.ps1` says how to serve one signed on the Mac.
+- Do not press "Download": it opens the user's browser.
 
 ## Cut the app off from the network
 

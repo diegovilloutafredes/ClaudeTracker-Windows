@@ -15,12 +15,14 @@ session. Open source, MIT licensed.
 **Status:** the platform-neutral library and its tests exist, and so does the app: tray
 icon, popover with usage rows and pace, sign-in window, polling (spec CT-001, done) and a
 Settings window with several accounts (CT-002, done), one row per account (CT-003),
-alerts for resets and pace (CT-004, done) and the Charts tab (CT-006, done) — specs in the
-workspace's `shared/features/`. That build has been run signed in (2026-10-05, through
-Google with a passkey): sign-in is detected, usage rows appear, the session survives a
-relaunch, and polling recovers by itself after the network drops. What is still untried is
-listed under known debt in the workspace's `shared/TESTING.md`; `shared/PARITY_MATRIX.md`
-is the honest list of what works.
+alerts for resets and pace (CT-004, done), a setup with signed updates and launch at
+sign-in (CT-005, done) and the Charts tab (CT-006, done) — specs in the workspace's
+`shared/features/`. Nothing is released yet: the repo is not on GitHub. The app has been
+run signed in (2026-10-05, through Google with a passkey), from a build folder and
+installed by its setup: sign-in is detected, usage rows appear, the session survives a
+relaunch, an upgrade and an uninstall, and polling recovers by itself after the network
+drops. What is still untried is listed under known debt in the workspace's
+`shared/TESTING.md`; `shared/PARITY_MATRIX.md` is the honest list of what works.
 
 ## Build & test
 
@@ -48,6 +50,7 @@ src/ClaudeTracker.Core/               ← logic, API decoders, storage. net10.0,
   ChartLayout.cs                      ← the charts' arithmetic: the forecast's frame, the axis marks, the figures
   Updates.cs                          ← release parsing, version compare, update signature verification
   FetchFailure.cs                     ← classification of in-page fetch failures; API errors
+  LoginItem.cs                        ← launch at sign-in: what Windows' two records mean, and what to do about them
   Storage.cs                          ← preference keys, settings file, account roster and history files
   Localization/L.cs                   ← string lookup by English key
   Localization/Localizable.xcstrings  ← COPY of the shared string catalog (do not edit here)
@@ -56,6 +59,7 @@ src/ClaudeTracker.App/                ← the app: WPF + WebView2, everything th
   App.xaml.cs                         ← entry point: single instance, theme, wires the pieces, 30 s clock
   UsageViewModel.cs                   ← state, accounts, the adaptive poll loop; raises Changed
   ClaudeApiClient.cs                  ← hidden WebView2 per account; runs fetch() in a claude.ai page
+  UpdateService.cs                    ← finds a newer release, downloads its setup, has it judged, runs it
   TrayIcon.cs                         ← the tray icon, with the percentage drawn into it
   PopoverWindow.xaml(.cs)             ← the popover; rebuilt from the view model on every change
   Charts.cs                           ← the Charts tab, the chart element it draws, the segmented picker
@@ -63,8 +67,14 @@ src/ClaudeTracker.App/                ← the app: WPF + WebView2, everything th
   LoginWindow.xaml(.cs)               ← claude.ai's login page; detects the new session cookie
   SettingsWindow.xaml(.cs)            ← accounts, display and alert settings; its two questions (rename, remove)
   Toasts.cs                           ← the toasts above the tray: a window reset, a pace warning
-  Infrastructure.cs                   ← file locations, the log, light/dark detection, the symbol font, Win32 calls
+  Infrastructure.cs                   ← file locations, the log, light/dark detection, the sign-in entry, the symbol font, Win32 calls
+  Assets/ClaudeTracker.ico            ← the app icon, written by scripts/generate-appicon.ps1
 tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the shared test vectors
+installer/ClaudeTracker.iss           ← the setup and the uninstaller (Inno Setup 6)
+scripts/build-installer.ps1           ← publishes the app and compiles the setup; by hand and in the release workflow
+scripts/install.ps1                   ← the one-line install; its path on main is in every README that quotes it
+scripts/publish-release.sh            ← run on the Mac: signs a draft release's setup and publishes it
+scripts/generate-appicon.ps1          ← redraws the icon; not a build step
 .claude/skills/run-app/               ← how to launch the app and look at it from a terminal
 ```
 
@@ -104,6 +114,37 @@ tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the s
 - **A menu of the popover closes with the popover** (`HidePopover`). One opened without a
   click, as a screen reader opens it, on a popover that never had the focus, has nothing
   else to close it.
+- **A copy the setup installed is told apart from one in a build folder**
+  (`AppPaths.IsInstalled`: the setup's uninstaller is beside it). Only an installed copy
+  enters the user's sign-in or replaces itself with an update; the other shows neither
+  switch in Settings and is offered an update as a link. A build folder is rebuilt under
+  your hands, and registered at sign-in it would be what starts instead of the real app.
+- **"--quit" closes the running copy.** The copy started with it raises a named event and
+  starts nothing. The setup and the uninstaller use it before they touch the app's files,
+  and then wait for the single-instance mutex to go.
+- **Launch at sign-in is two registry values, and the app follows what was done to them
+  elsewhere** (`LoginItem.AtStart`, applied by `SyncLaunchAtLogin` at start and whenever
+  Settings opens). The entry is a value under the user's Run key, run with
+  `--background`. Windows does not remove an entry the user switches off in Task Manager
+  or Settings: it keeps it and notes the fact beside it (`StartupApproved\Run`), first byte
+  odd for off. Windows 11's Settings wrote 01 and, for on again, twelve zeros — not the 03
+  and 02 written down for Task Manager — so the rule reads odd and even. The app opts in
+  once, on the first run of an installed copy; after that an entry switched off or removed
+  turns the app's switch off and is never written back, and one switched on again turns it
+  on. The uninstaller removes the entry, so the setup says `--just-installed` to the app it
+  starts after a first install, and the app puts the entry back if the kept settings said on.
+- **An update is a setup file, run only on a verdict** (`UpdateService`, `Updates.JudgeSetup`):
+  signed by the key compiled into the app, and a newer version than this copy — the
+  signature first, because nothing a file says about itself counts until the file is known
+  to be the maintainer's. A setup that is refused, or only half arrived, is deleted.
+- **The app does not quit to be updated.** It starts the setup with
+  `Updates.SilentInstallArguments` and waits; the setup asks it to quit when it is ready to
+  replace it, and starts it again with what `/AppArgs=` carried (`--background`). A setup
+  that stops early therefore leaves the app running, which counts it as a failed install:
+  three of one release and it stops trying (`RecordInstallFailure`, the Mac's rule).
+- **"Download" opens a release's page only if it is a web address** (`Updates.IsWebLink`).
+  The address comes out of a list the app fetched, and Windows opens or runs whatever it
+  is handed.
 - **Switches apply on Checked and Unchecked, never on Click.** A screen reader toggles a
   switch without clicking it. The same goes for anything a test drives through UI
   Automation — which also presses buttons of a window that a question is blocking, hence
@@ -186,7 +227,10 @@ what a user gets; `.claude/skills/run-app` says what to expect from each.
 
 | Argument | What it does |
 |---|---|
-| `--background` | Starts without showing the popover. Not only for development: the launch-at-login entry will pass it |
+| `--background` | Starts without showing the popover. Not for development: the sign-in entry passes it, and so does an update |
+| `--quit` | Closes the copy that is running and starts nothing. Not for development either: the setup and the uninstaller use it |
+| `--just-installed` | Said by the setup to the app it starts after a first install (not an upgrade): a sign-in entry the uninstaller took away is put back if the settings say on |
+| `--update-feed <address>` | Reads the releases from that address instead of GitHub. What it serves is trusted no more than GitHub: a setup still needs a signature the embedded key verifies |
 | `--full-host-page` | Hosts the hidden browser on the full claude.ai page from the start |
 | `--challenge-once` | Treats the first fetch as challenged by Cloudflare |
 | `--no-focus` | Shows the popover without asking for the keyboard focus |
@@ -242,17 +286,53 @@ regardless of the system language, and round-half-even where Swift's `%.1f` does
 apps' releases; its private half exists only in the maintainer's Mac Keychain. The test
 `EmbeddedPublicKeyMatchesTheReleaseSigningKey` verifies a real signature against it.
 
+## The setup
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1                  # artifacts\ClaudeTracker-Setup.exe, the version in Directory.Build.props
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.1.1   # another version, to try an upgrade or an update
+```
+
+Needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`; the script finds it in the
+user's or the machine's folder). It publishes the app for win-x64 with .NET inside it,
+fetches Microsoft's small WebView2 installer (and refuses it unless Microsoft signed it),
+and compiles `installer/ClaudeTracker.iss`.
+
+The setup installs for the current user (`%LocalAppData%\Programs\ClaudeTracker`), asks for
+no rights, and leaves `%AppData%\ClaudeTracker` and `%LocalAppData%\ClaudeTracker` — the
+accounts, the settings, the sessions — alone, as does the uninstaller. What the app and
+the script agree on by name is listed at the top of the script: change one side and the
+other breaks silently.
+
+In an Inno Setup script no line of `[Code]` may begin with a square bracket (it reads as a
+section), and `Start-Process -Wait` on a setup waits for the app the setup starts too.
+
 ## Releases
 
-Not set up yet. The rules that are already fixed:
+Nothing has been released yet, and the two steps below that need GitHub or the Mac have
+never run. The script they share with a build by hand has.
+
+```bash
+# 1. Bump <Version> in Directory.Build.props, commit, tag the same number, push both.
+git tag v1.2.0 && git push origin main v1.2.0
+# 2. .github/workflows/release.yml builds the setup and makes a DRAFT release with it.
+# 3. On the Mac, where the signing key is (the Mac repo is looked for beside this one):
+scripts/publish-release.sh 1.2.0      # waits for the workflow, signs the setup, uploads its .sig, publishes
+```
 
 - This repo releases on its own, with its own version: the `<Version>` line in
-  `Directory.Build.props`, tagged `v<Version>`.
-- The updater will read this repo's GitHub releases and install the asset named exactly
+  `Directory.Build.props`, tagged `v<Version>`. The workflow refuses a tag that is not that
+  version.
+- The updater reads this repo's GitHub releases and installs the asset named exactly
   `ClaudeTracker-Setup.exe`, only when `ClaudeTracker-Setup.exe.sig` verifies against the
-  embedded key (`Updates.ParseGitHubReleases`, `Updates.VerifyUpdateSignature`).
+  embedded key (`Updates.ParseGitHubReleases`, `Updates.JudgeSetup`). A draft is passed
+  over, so nothing reaches anyone until the last step.
 - Never publish a Windows file or tag in the Mac repo: installed Mac copies update
   themselves from that repo's newest release and would try to install it.
+- The setup is not code-signed. One saved by a browser is stopped by Windows SmartScreen
+  ("Windows protected your PC") until a certificate signs it; the one-line install
+  (`scripts/install.ps1`) is not, because a file PowerShell fetches is not marked as having
+  come from the Internet.
 
 ## Commits
 
