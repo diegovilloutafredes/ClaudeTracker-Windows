@@ -13,6 +13,8 @@
   "%d days": { "es": "%d días" },
   "1 day": { "es": "1 día" },
   "less than a minute": { "es": "menos de un minuto" },
+  "%@ and %@": { "es": "%@ y %@" },
+  "%@, and %@": { "es": "%@ y %@" },
   "That account was already here. Its sign-in has been refreshed.": { "es": "Esa cuenta ya estaba aquí. Se renovó su inicio de sesión." },
   "Couldn't reach claude.ai": { "es": "No se pudo conectar con claude.ai" },
   "claude.ai took too long to answer": { "es": "claude.ai tardó demasiado en responder" },

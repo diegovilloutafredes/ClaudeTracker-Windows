@@ -411,6 +411,74 @@ public class WindowsOnlyTests
         Assert.Null(Accounts.MergeDuplicate([home], Guid.NewGuid(), "ana@example.com"));
     }
 
+    // MARK: - Alerts (CT-004)
+    //
+    // The Mac app words its alerts and decides which windows raise them inside its view model.
+    // The values here are what it produces for the same inputs.
+
+    [Fact]
+    public void NamesAreListedTheWayTheLanguageListsThem()
+    {
+        Assert.Equal("", TextList.And([]));
+        Assert.Equal("5-Hour Window", TextList.And(["5-Hour Window"]));
+        Assert.Equal("5-Hour Window and 7-Day Window", TextList.And(["5-Hour Window", "7-Day Window"]));
+        Assert.Equal("A, B, and C", TextList.And(["A", "B", "C"]));
+        Assert.Equal("A y B", TextList.And(["A", "B"], "es"));
+        Assert.Equal("A, B y C", TextList.And(["A", "B", "C"], "es"));
+    }
+
+    [Fact]
+    public void AResetAlertNamesOneWindowOrSeveral()
+    {
+        Assert.Equal("5-Hour Window reset — you're good to go!", AlertText.ResetBody(["5-Hour Window"]));
+        Assert.Equal("5-Hour Window and 7-Day Window have reset — you're good to go!",
+                     AlertText.ResetBody(["5-Hour Window", "7-Day Window"]));
+    }
+
+    [Fact]
+    public void APaceAlertSaysWhichWindowHowSoonAndHowFast()
+    {
+        Assert.Equal("5-Hour Window fills in 25 min at 45%/hr", AlertText.PaceBody("5-Hour Window", 25, 45.0, PaceRateUnit.PerHour));
+        Assert.Equal("7-Day Fable fills in 3 min at 0.750%/min", AlertText.PaceBody("7-Day Fable", 3, 45.0, PaceRateUnit.PerMinute));
+    }
+
+    [Theory]
+    // key, per-model, 5-hour switch, 7-day switch, per-model rows shown -> watched
+    [InlineData("five_hour", false, true, false, false, true)]
+    [InlineData("five_hour", false, false, true, true, false)]
+    [InlineData("seven_day", false, true, false, true, false)]
+    [InlineData("seven_day", false, false, true, false, true)]
+    // A per-model window rides the 7-day switch, and only while its row is shown.
+    [InlineData("scoped.Fable", true, true, true, true, true)]
+    [InlineData("scoped.Fable", true, true, true, false, false)]
+    [InlineData("scoped.Fable", true, true, false, true, false)]
+    [InlineData("seven_day_sonnet", true, false, true, true, true)]
+    public void AWindowIsWatchedByItsOwnSwitch(string key, bool perModel, bool notify5Hour, bool notify7Day, bool showModels, bool watched)
+    {
+        var window = new TrackedWindow(key, key, new UsageWindow(10, null), perModel);
+        Assert.Equal(watched, AlertSettings.IsWatched(window, notify5Hour, notify7Day, showModels));
+    }
+
+    [Theory]
+    [InlineData(null, 3.0)]
+    [InlineData(0.0, 3.0)]
+    [InlineData(-4.0, 3.0)]
+    [InlineData(double.NaN, 3.0)]
+    [InlineData(0.2, 1.0)]
+    [InlineData(12.0, 12.0)]
+    [InlineData(99.0, 30.0)]
+    public void AStoredToastDurationIsBroughtIntoRange(double? stored, double expected) =>
+        Assert.Equal(expected, AlertSettings.ToastSeconds(stored, AlertSettings.ResetToastSecondsDefault));
+
+    [Theory]
+    [InlineData(null, 30.0)]
+    [InlineData(0.0, 30.0)]
+    [InlineData(2.0, 5.0)]
+    [InlineData(45.0, 45.0)]
+    [InlineData(600.0, 60.0)]
+    public void AStoredWarningThresholdIsBroughtIntoRange(double? stored, double expected) =>
+        Assert.Equal(expected, AlertSettings.WarningMinutes(stored));
+
     // MARK: - Extra usage and popup size
 
     [Theory]
