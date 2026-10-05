@@ -57,6 +57,41 @@ public partial class SettingsWindow : Window
         RateUnitLabel.Text = L.T("Rate unit");
         TimeFormatLabel.Text = L.T("Time format");
 
+        ResetHeader.Text = L.T("Window Resets");
+        Notify5HourSwitch.Content = L.T("5-Hour window resets");
+        Notify7DaySwitch.Content = L.T("7-Day window resets");
+        ResetToastSwitch.Content = L.T("Toast near the system tray");
+        ResetDurationLabel.Text = L.T("Duration");
+        ResetPermanentSwitch.Content = L.T("Stay until dismissed");
+        ResetSoundSwitch.Content = L.T("Sound");
+        ResetTestButton.Content = L.T("Test");
+        ResetTestCaption.Text = L.T("Simulates a window reset through all enabled channels");
+        PaceHeader.Text = L.T("Pace Alerts");
+        NotifyPaceSwitch.Content = L.T("Notify when approaching limit");
+        WarningLabel.Text = L.T("Warn with less than");
+        PaceToastSwitch.Content = L.T("Toast near the system tray");
+        PaceDurationLabel.Text = L.T("Duration");
+        PacePermanentSwitch.Content = L.T("Stay until dismissed");
+        PaceSoundSwitch.Content = L.T("Sound");
+        PaceTestButton.Content = L.T("Test");
+        PaceTestCaption.Text = L.T("Simulates a pace alert through all enabled channels");
+        PaceCaption.Text = L.T("Fires when a watched window is projected to fill before it resets, based on your current consumption rate.");
+        foreach (var slider in new[] { ResetDurationSlider, PaceDurationSlider })
+        {
+            slider.Minimum = AlertSettings.ToastSecondsMinimum;
+            slider.Maximum = AlertSettings.ToastSecondsMaximum;
+            slider.TickFrequency = 1;
+            slider.SmallChange = 1;
+            slider.LargeChange = 5;
+            AutomationProperties.SetName(slider, L.T("Duration"));
+        }
+        WarningSlider.Minimum = AlertSettings.WarningMinutesMinimum;
+        WarningSlider.Maximum = AlertSettings.WarningMinutesMaximum;
+        WarningSlider.TickFrequency = AlertSettings.WarningMinutesStep;
+        WarningSlider.SmallChange = AlertSettings.WarningMinutesStep;
+        WarningSlider.LargeChange = AlertSettings.WarningMinutesStep * 2;
+        AutomationProperties.SetName(WarningSlider, WarningLabel.Text);
+
         foreach (var display in MenuBarDisplays.All) TrayShowsPicker.Items.Add(display.Label());
         foreach (var unit in PaceRateUnits.All) RateUnitPicker.Items.Add(unit.Label());
         TimeFormatPicker.Items.Add(L.T("AM/PM"));
@@ -94,6 +129,30 @@ public partial class SettingsWindow : Window
         {
             if (!refreshing && TimeFormatPicker.SelectedIndex >= 0) viewModel.Use24HourTime = TimeFormatPicker.SelectedIndex == 1;
         };
+
+        BindSwitch(Notify5HourSwitch, on => viewModel.Notify5Hour = on);
+        BindSwitch(Notify7DaySwitch, on => viewModel.Notify7Day = on);
+        BindSwitch(ResetToastSwitch, on => viewModel.NotifyToast = on);
+        BindSwitch(ResetPermanentSwitch, on => viewModel.ToastPermanent = on);
+        BindSwitch(ResetSoundSwitch, on => viewModel.ResetSoundEnabled = on);
+        BindSwitch(NotifyPaceSwitch, on => viewModel.NotifyPace = on);
+        BindSwitch(PaceToastSwitch, on => viewModel.PaceToastEnabled = on);
+        BindSwitch(PacePermanentSwitch, on => viewModel.PaceToastPermanent = on);
+        BindSwitch(PaceSoundSwitch, on => viewModel.PaceSoundEnabled = on);
+        ResetDurationSlider.ValueChanged += (_, _) =>
+        {
+            if (!refreshing) viewModel.ToastDuration = ResetDurationSlider.Value;
+        };
+        PaceDurationSlider.ValueChanged += (_, _) =>
+        {
+            if (!refreshing) viewModel.PaceToastDuration = PaceDurationSlider.Value;
+        };
+        WarningSlider.ValueChanged += (_, _) =>
+        {
+            if (!refreshing) viewModel.PaceWarningMinutes = WarningSlider.Value;
+        };
+        ResetTestButton.Click += (_, _) => viewModel.SendTestNotification();
+        PaceTestButton.Click += (_, _) => viewModel.SendTestPaceNotification();
 
         viewModel.Changed += Refresh;
         // Light or dark may have changed while the window was in the background.
@@ -154,15 +213,19 @@ public partial class SettingsWindow : Window
         {
             isDark = SystemTheme.AppsAreDark;
             Background = Gray(isDark ? (byte)0x20 : (byte)0xF3);
-            foreach (var text in new[] { AccountHeader, DisplayHeader, TrayShowsLabel, PopupSizeLabel, RateUnitLabel, TimeFormatLabel })
+            foreach (var text in new[] { AccountHeader, DisplayHeader, TrayShowsLabel, PopupSizeLabel, RateUnitLabel, TimeFormatLabel,
+                                         ResetHeader, ResetDurationLabel, PaceHeader, WarningLabel, PaceDurationLabel })
             {
                 text.Foreground = Primary;
             }
-            foreach (var text in new[] { OpenLogsCaption, Disclaimer, PopupSizeValue })
+            foreach (var text in new[] { OpenLogsCaption, Disclaimer, PopupSizeValue, ResetDurationValue, ResetTestCaption,
+                                         WarningValue, PaceDurationValue, PaceTestCaption, PaceCaption })
             {
                 text.Foreground = Secondary;
             }
-            foreach (var toggle in new[] { ShowModelsSwitch, ShowPaceSwitch, ShowTrayPaceSwitch })
+            foreach (var toggle in new[] { ShowModelsSwitch, ShowPaceSwitch, ShowTrayPaceSwitch, Notify5HourSwitch, Notify7DaySwitch,
+                                           ResetToastSwitch, ResetPermanentSwitch, ResetSoundSwitch, NotifyPaceSwitch,
+                                           PaceToastSwitch, PacePermanentSwitch, PaceSoundSwitch })
             {
                 toggle.Foreground = Primary;
             }
@@ -185,14 +248,54 @@ public partial class SettingsWindow : Window
             ShowPaceSwitch.IsChecked = viewModel.ShowPace;
             ShowTrayPaceSwitch.IsChecked = viewModel.ShowPaceMenuBar;
             // The unit applies to both places a pace is shown; with neither on it has no effect.
-            RateUnitRow.Visibility = viewModel.ShowPace || viewModel.ShowPaceMenuBar ? Visibility.Visible : Visibility.Collapsed;
+            RateUnitRow.Visibility = viewModel.ShowPace || viewModel.ShowPaceMenuBar || viewModel.NotifyPace ? Visibility.Visible : Visibility.Collapsed;
             RateUnitPicker.SelectedIndex = IndexOf(PaceRateUnits.All, viewModel.PaceRateUnit);
             TimeFormatPicker.SelectedIndex = viewModel.Use24HourTime ? 1 : 0;
+            RefreshAlerts();
         }
         finally
         {
             refreshing = false;
         }
+    }
+
+    private void RefreshAlerts()
+    {
+        var signedIn = viewModel.IsAuthenticated ? Visibility.Visible : Visibility.Collapsed;
+        ResetSection.Visibility = signedIn;
+        PaceSection.Visibility = signedIn;
+
+        Notify5HourSwitch.IsChecked = viewModel.Notify5Hour;
+        Notify7DaySwitch.IsChecked = viewModel.Notify7Day;
+        ResetToastSwitch.IsChecked = viewModel.NotifyToast;
+        ResetToastOptions.Visibility = viewModel.NotifyToast ? Visibility.Visible : Visibility.Collapsed;
+        ShowDuration(ResetDurationSlider, ResetDurationValue, ResetDurationLabel, viewModel.ToastDuration, viewModel.ToastPermanent);
+        ResetPermanentSwitch.IsChecked = viewModel.ToastPermanent;
+        ResetSoundSwitch.IsChecked = viewModel.ResetSoundEnabled;
+        // With every channel off the test would do nothing, and look broken.
+        ResetTestButton.IsEnabled = viewModel.NotifyToast || viewModel.ResetSoundEnabled;
+
+        NotifyPaceSwitch.IsChecked = viewModel.NotifyPace;
+        PaceOptions.Visibility = viewModel.NotifyPace ? Visibility.Visible : Visibility.Collapsed;
+        WarningSlider.Value = viewModel.PaceWarningMinutes;
+        WarningValue.Text = L.F("%lldm", (int)viewModel.PaceWarningMinutes);
+        AutomationProperties.SetHelpText(WarningSlider, WarningValue.Text);
+        PaceToastSwitch.IsChecked = viewModel.PaceToastEnabled;
+        PaceToastOptions.Visibility = viewModel.PaceToastEnabled ? Visibility.Visible : Visibility.Collapsed;
+        ShowDuration(PaceDurationSlider, PaceDurationValue, PaceDurationLabel, viewModel.PaceToastDuration, viewModel.PaceToastPermanent);
+        PacePermanentSwitch.IsChecked = viewModel.PaceToastPermanent;
+        PaceSoundSwitch.IsChecked = viewModel.PaceSoundEnabled;
+        PaceTestButton.IsEnabled = viewModel.PaceToastEnabled || viewModel.PaceSoundEnabled;
+    }
+
+    /// <summary>A toast's duration: the seconds, or "∞" and a slider that is off while it stays until dismissed.</summary>
+    private void ShowDuration(Slider slider, TextBlock value, TextBlock label, double seconds, bool permanent)
+    {
+        slider.Value = seconds;
+        slider.IsEnabled = !permanent;
+        value.Text = permanent ? L.T("∞") : L.F("%llds", (int)seconds);
+        label.Opacity = permanent ? 0.5 : 1;
+        AutomationProperties.SetHelpText(slider, permanent ? L.T("Stay until dismissed") : value.Text);
     }
 
     private static int IndexOf<T>(IReadOnlyList<T> all, T value)

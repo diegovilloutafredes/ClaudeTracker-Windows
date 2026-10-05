@@ -14,8 +14,8 @@ session. Open source, MIT licensed.
 
 **Status:** the platform-neutral library and its tests exist, and so does the app: tray
 icon, popover with usage rows and pace, sign-in window, polling (spec CT-001, done) and a
-Settings window with several accounts (CT-002, in progress) — specs in the workspace's
-`shared/features/`. That build has been run signed in (2026-10-05, through
+Settings window with several accounts (CT-002, done), one row per account (CT-003) and
+alerts for resets and pace (CT-004) — specs in the workspace's `shared/features/`. That build has been run signed in (2026-10-05, through
 Google with a passkey): sign-in is detected, usage rows appear, the session survives a
 relaunch, and polling recovers by itself after the network drops. What is still untried is
 listed under known debt in the workspace's `shared/TESTING.md`; `shared/PARITY_MATRIX.md`
@@ -42,6 +42,7 @@ src/ClaudeTracker.Core/               ← logic, API decoders, storage. net10.0,
   ApiModels.cs                        ← claude.ai payload types and their fail-soft decoding; log signatures
   UsageMath.cs                        ← urgency colours, pace, polling tiers, reset detection, time text
   RowText.cs                          ← the words of the pace lines and of money; the popup size range
+  Alerts.cs                           ← the words of the two alerts, which windows raise them, the sliders' ranges
   History.cs                          ← chart history, chart series, downsampling
   Updates.cs                          ← release parsing, version compare, update signature verification
   FetchFailure.cs                     ← classification of in-page fetch failures; API errors
@@ -56,7 +57,8 @@ src/ClaudeTracker.App/                ← the app: WPF + WebView2, everything th
   TrayIcon.cs                         ← the tray icon, with the percentage drawn into it
   PopoverWindow.xaml(.cs)             ← the popover; rebuilt from the view model on every change
   LoginWindow.xaml(.cs)               ← claude.ai's login page; detects the new session cookie
-  SettingsWindow.xaml(.cs)            ← accounts and display settings; its two questions (rename, remove)
+  SettingsWindow.xaml(.cs)            ← accounts, display and alert settings; its two questions (rename, remove)
+  Toasts.cs                           ← the toasts above the tray: a window reset, a pace warning
   Infrastructure.cs                   ← file locations, the log, light/dark detection, Win32 calls
 tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the shared test vectors
 .claude/skills/run-app/               ← how to launch the app and look at it from a terminal
@@ -127,6 +129,16 @@ tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the s
 - **Profiles nobody owns are deleted at launch** (`SweepOrphanedProfiles`), once the
   roster is final and never while a corrupt roster is set aside. That is what cleans up
   after a quit or a failed delete; deleting a profile takes a live browser process.
+- **A toast never takes the focus** (`ToastWindow`: `WS_EX_NOACTIVATE`, not focusable, shown
+  without activation). If it did, clicking it would make it the active window and the
+  popover, which hides when it loses the focus, would vanish under it. Since nobody can tab
+  to it, its text is announced to screen readers when it appears (`Announce`). `ToastHost`
+  stacks toasts upwards from the tray's corner, above the popover while that shows, in
+  pixels like the popover.
+- **Alerts are for the active account only, and a pace alert warns once per episode.** The
+  rule for one window is `PaceMath.AlertStep`; `CheckPaceNotifications` applies it to
+  every window and keeps the toast ids so a warning can be taken down when its reason is
+  gone (the pace eased, the window reset, alerts switched off, another account active).
 - **The popover hides when it loses the focus — and by itself if it never had it**
   (`HideIfNeverFocused`, 8 s, unless the pointer is on it). Windows does not always let a
   window take the focus, and one that never had it never gets `Deactivated`. A process
@@ -156,6 +168,8 @@ what a user gets; `.claude/skills/run-app` says what to expect from each.
 | `--challenge-once` | Treats the first fetch as challenged by Cloudflare |
 | `--no-focus` | Shows the popover without asking for the keyboard focus |
 | `--page-heap` | Logs what the hidden page holds in memory, once a minute |
+| `--reset-once` | Treats the second poll as a reset of the 5-Hour window, through the real detection path |
+| `--pace-alert-always` | Counts any pace as inside the warning threshold, so a pace alert fires as soon as there is a pace |
 
 ## How this code relates to the Mac app
 

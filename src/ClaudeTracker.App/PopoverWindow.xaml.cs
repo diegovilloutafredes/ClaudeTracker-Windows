@@ -29,6 +29,17 @@ public partial class PopoverWindow : Window
     /// </summary>
     internal bool NeverTakesFocus { get; set; }
 
+    /// <summary>Where the popover is on screen, in pixels; null while it is hidden.</summary>
+    internal System.Drawing.Rectangle? ScreenBounds
+    {
+        get
+        {
+            var handle = new WindowInteropHelper(this).Handle;
+            if (!IsVisible || handle == IntPtr.Zero || !Native.GetWindowRect(handle, out var rect)) return null;
+            return System.Drawing.Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+        }
+    }
+
     /// <summary>"Settings" was pressed in the footer.</summary>
     internal event Action? SettingsRequested;
 

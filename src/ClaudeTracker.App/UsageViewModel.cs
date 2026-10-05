@@ -32,6 +32,10 @@ internal sealed class AccountState
     public int Consecutive401s;
     /// <summary>True after a 401 retry confirmed the session is no longer valid.</summary>
     public bool SessionExpired;
+    /// <summary>Windows whose pace alert has fired and not cleared yet; see <see cref="PaceMath.AlertStep"/>.</summary>
+    public HashSet<string> PaceWarned = new(StringComparer.Ordinal);
+    /// <summary>The toast each warned window has on screen, if any, so it can be taken down when the pace eases.</summary>
+    public Dictionary<string, Guid> PaceToastIds = new(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -157,6 +161,104 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     {
         get => Core.PopupScale.Normalized(settings.GetDouble(PrefKey.PopupScale));
         set { settings.Set(PrefKey.PopupScale, Core.PopupScale.Normalized(value)); Notify(); }
+    }
+
+    // MARK: - Alert preferences
+    //
+    // The names, the keys and the starting values are the Mac app's.
+
+    /// <summary>Whether the 5-Hour window is watched: its resets announced, its pace warned about.</summary>
+    public bool Notify5Hour
+    {
+        get => settings.GetBool(PrefKey.Notify5Hour) ?? true;
+        set { settings.Set(PrefKey.Notify5Hour, value); Notify(); }
+    }
+
+    /// <summary>The same for the 7-Day window and, while their rows are shown, the per-model windows.</summary>
+    public bool Notify7Day
+    {
+        get => settings.GetBool(PrefKey.Notify7Day) ?? false;
+        set { settings.Set(PrefKey.Notify7Day, value); Notify(); }
+    }
+
+    /// <summary>Whether a reset shows a toast.</summary>
+    public bool NotifyToast
+    {
+        get => settings.GetBool(PrefKey.NotifyToast) ?? true;
+        set { settings.Set(PrefKey.NotifyToast, value); Notify(); }
+    }
+
+    /// <summary>Whether a reset plays a sound. Switching it on plays the sound once, to hear it.</summary>
+    public bool ResetSoundEnabled
+    {
+        get => settings.GetBool(PrefKey.NotifySound) ?? false;
+        set
+        {
+            var was = ResetSoundEnabled;
+            settings.Set(PrefKey.NotifySound, value);
+            if (value && !was) PlayResetSound();
+            Notify();
+        }
+    }
+
+    /// <summary>Seconds a reset toast stays.</summary>
+    public double ToastDuration
+    {
+        get => AlertSettings.ToastSeconds(settings.GetDouble(PrefKey.ToastDuration), AlertSettings.ResetToastSecondsDefault);
+        set { settings.Set(PrefKey.ToastDuration, AlertSettings.ToastSeconds(value, AlertSettings.ResetToastSecondsDefault)); Notify(); }
+    }
+
+    /// <summary>Whether a reset toast stays until it is dismissed.</summary>
+    public bool ToastPermanent
+    {
+        get => settings.GetBool(PrefKey.ToastPermanent) ?? false;
+        set { settings.Set(PrefKey.ToastPermanent, value); Notify(); }
+    }
+
+    /// <summary>Whether a watched window projected to fill before it resets raises an alert.</summary>
+    public bool NotifyPace
+    {
+        get => settings.GetBool(PrefKey.NotifyPace) ?? false;
+        set { settings.Set(PrefKey.NotifyPace, value); Notify(); }
+    }
+
+    /// <summary>A pace alert fires when the projected time to full drops below this many minutes.</summary>
+    public double PaceWarningMinutes
+    {
+        get => AlertSettings.WarningMinutes(settings.GetDouble(PrefKey.PaceWarningMinutes));
+        set { settings.Set(PrefKey.PaceWarningMinutes, AlertSettings.WarningMinutes(value)); Notify(); }
+    }
+
+    public bool PaceToastEnabled
+    {
+        get => settings.GetBool(PrefKey.PaceToastEnabled) ?? false;
+        set { settings.Set(PrefKey.PaceToastEnabled, value); Notify(); }
+    }
+
+    /// <summary>Seconds a pace toast stays; apart from the reset toast's.</summary>
+    public double PaceToastDuration
+    {
+        get => AlertSettings.ToastSeconds(settings.GetDouble(PrefKey.PaceToastDuration), AlertSettings.PaceToastSecondsDefault);
+        set { settings.Set(PrefKey.PaceToastDuration, AlertSettings.ToastSeconds(value, AlertSettings.PaceToastSecondsDefault)); Notify(); }
+    }
+
+    public bool PaceToastPermanent
+    {
+        get => settings.GetBool(PrefKey.PaceToastPermanent) ?? false;
+        set { settings.Set(PrefKey.PaceToastPermanent, value); Notify(); }
+    }
+
+    /// <summary>Whether a pace alert plays a sound. Switching it on plays the sound once, to hear it.</summary>
+    public bool PaceSoundEnabled
+    {
+        get => settings.GetBool(PrefKey.PaceSoundEnabled) ?? false;
+        set
+        {
+            var was = PaceSoundEnabled;
+            settings.Set(PrefKey.PaceSoundEnabled, value);
+            if (value && !was) PlayPaceSound();
+            Notify();
+        }
     }
 
     // MARK: - Active account accessors
@@ -524,6 +626,7 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
             LogSignatureTransitions(oldUsage, response);
             CheckForResets(id, response);
             RecordHistory(id, response);
+            CheckPaceNotifications(id, response);
             AppendDataPoint(id, response);
             state.Usage = response;
             state.Error = null;
@@ -660,6 +763,114 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         }
     }
 
+    // MARK: - Alerts
+
+    /// <summary>Development aid (<c>--reset-once</c>): the next poll with numbers is treated as a reset of the 5-Hour window.</summary>
+    public static bool SimulateResetOnce { get; set; }
+
+    /// <summary>Development aid (<c>--pace-alert-always</c>): any pace counts as inside the warning threshold.</summary>
+    public static bool PaceAlertAlways { get; set; }
+
+    private bool IsWatched(TrackedWindow window) => AlertSettings.IsWatched(window, Notify5Hour, Notify7Day, ShowModelWindows);
+
+    // The two sounds are Windows' own, so they follow the user's sound scheme — and are silent
+    // under "No Sounds". The Mac app plays its system sounds "Hero" and "Basso".
+    private static void PlayResetSound() => System.Media.SystemSounds.Asterisk.Play();
+
+    private static void PlayPaceSound() => System.Media.SystemSounds.Exclamation.Play();
+
+    /// <summary>Announces a reset through the channels that are on.</summary>
+    private void DispatchResetAlert(IReadOnlyList<string> windows)
+    {
+        if (NotifyToast) ToastHost.Shared.Show(AlertText.ResetTitle, AlertText.ResetBody(windows), ToastKind.Reset, ToastDuration, ToastPermanent);
+        if (ResetSoundEnabled) PlayResetSound();
+    }
+
+    /// <summary>
+    /// Raises a pace alert through the channels that are on. Returns the toast's id when one
+    /// was shown, so it can be taken down once the pace eases.
+    /// </summary>
+    private Guid? DispatchPaceAlert(string window, int minutesLeft, double rate)
+    {
+        Guid? toast = null;
+        if (PaceToastEnabled)
+        {
+            toast = ToastHost.Shared.Show(AlertText.PaceTitle, AlertText.PaceBody(window, minutesLeft, rate, PaceRateUnit),
+                                          ToastKind.Pace, PaceToastDuration, PaceToastPermanent);
+        }
+        if (PaceSoundEnabled) PlayPaceSound();
+        return toast;
+    }
+
+    /// <summary>What "Test" under Window Resets does: a reset alert through the channels that are on.</summary>
+    public void SendTestNotification() => DispatchResetAlert([MenuBarWindow.FiveHour.Label()]);
+
+    /// <summary>What "Test" under Pace Alerts does.</summary>
+    public void SendTestPaceNotification() => DispatchPaceAlert(MenuBarWindow.FiveHour.Label(), 25, 45.0);
+
+    /// <summary>Takes down a window's pace toast, if it has one, and lets it warn again.</summary>
+    private static void ClearPaceAlert(AccountState state, string key)
+    {
+        if (state.PaceToastIds.Remove(key, out var toast)) ToastHost.Shared.Dismiss(toast);
+        state.PaceWarned.Remove(key);
+    }
+
+    /// <summary>
+    /// Takes down the pace toasts an account has on screen: an account that stops being the
+    /// active one must not leave its warnings over another account's numbers.
+    /// </summary>
+    private void DismissPaceToasts(Guid? id)
+    {
+        if (id is not { } account || !states.TryGetValue(account, out var state)) return;
+        foreach (var toast in state.PaceToastIds.Values) ToastHost.Shared.Dismiss(toast);
+        state.PaceToastIds.Clear();
+    }
+
+    /// <summary>
+    /// Raises a pace alert when a watched window is on course to fill before it resets. The
+    /// rule for one window — warn once per episode, clear with some slack, forget an unwatched
+    /// window — is <see cref="PaceMath.AlertStep"/>; this applies it to every window.
+    /// </summary>
+    private void CheckPaceNotifications(Guid id, UsageResponse response)
+    {
+        var state = State(id);
+        // Only the active account warns: nobody is looking at the others.
+        if (!NotifyPace || id != ActiveAccountId)
+        {
+            // Forgetting the warned flags alone would leave a toast set to stay on screen
+            // for good, and show it twice when alerts are switched back on.
+            DismissPaceToasts(id);
+            state.PaceWarned.Clear();
+            return;
+        }
+
+        var candidates = response.TrackedWindows.Select(w => (w.Key, Name: w.Title, Watched: IsWatched(w))).ToList();
+        // A window that left the response (a model limit gone, or a built-in window the API
+        // nulled out, as Team organisations' 5-Hour window is when idle) is cleared like an
+        // unwatched one — or its warned flag would stay, and it would never warn again.
+        var present = candidates.Select(c => c.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var key in state.PaceToastIds.Keys.Union(state.PaceWarned).Where(key => !present.Contains(key)).Order(StringComparer.Ordinal).ToList())
+        {
+            candidates.Add((key, key, false));
+        }
+
+        var threshold = PaceAlertAlways ? double.MaxValue : PaceWarningMinutes;
+        foreach (var (key, name, watched) in candidates)
+        {
+            var pace = state.UtilizationHistory.TryGetValue(key, out var history) ? PaceMath.ComputePace(history) : null;
+            var minutes = pace?.ProjectedHours * 60;
+            var step = PaceMath.AlertStep(watched, state.PaceWarned.Contains(key), minutes, threshold);
+            if (step.Dismiss && state.PaceToastIds.Remove(key, out var showing)) ToastHost.Shared.Dismiss(showing);
+            if (step.Fire && pace is { } current && minutes is { } left
+                && DispatchPaceAlert(name, Math.Max(1, (int)left), current.Rate) is { } toast)
+            {
+                state.PaceToastIds[key] = toast;
+            }
+            if (step.Warned) state.PaceWarned.Add(key);
+            else state.PaceWarned.Remove(key);
+        }
+    }
+
     // MARK: - Resets, pace history, chart history
 
     /// <summary>
@@ -672,10 +883,23 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         var state = State(id);
         var (resetKeys, stored) = Resets.DetectResets(state.PreviousResetsAt, response.TrackedWindows, DateTimeOffset.UtcNow);
         state.PreviousResetsAt = stored;
-        if (state.Usage is not null && resetKeys.Count > 0)
+        // The first response is the baseline: nothing reset, the app just started watching.
+        if (state.Usage is null) return;
+        if (SimulateResetOnce)
         {
-            AppLogger.Shared.Info($"window reset detected: {string.Join(", ", resetKeys)}");
+            SimulateResetOnce = false;
+            resetKeys = [.. resetKeys, MenuBarWindow.FiveHour.RawValue()];
         }
+        if (resetKeys.Count == 0) return;
+        AppLogger.Shared.Info($"window reset detected: {string.Join(", ", resetKeys)}");
+        // Only the active account announces: a reset of another one is nothing the user can
+        // act on right now. (The bookkeeping above runs for every account regardless, or a
+        // passed reset would wait in the store and fire a stale alert later.)
+        if (id != ActiveAccountId || !(NotifyToast || ResetSoundEnabled)) return;
+        var windows = response.TrackedWindows.GroupBy(w => w.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var names = resetKeys.Select(key => windows.TryGetValue(key, out var window) ? window : TrackedWindow.Vanished(key))
+                             .Where(IsWatched).Select(window => window.Title).ToList();
+        if (names.Count > 0) DispatchResetAlert(names);
     }
 
     /// <summary>
@@ -690,7 +914,11 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         foreach (var tracked in response.TrackedWindows)
         {
             if (!state.UtilizationHistory.TryGetValue(tracked.Key, out var history)) history = [];
-            if (history.Count > 0 && PaceMath.ShouldResetPaceHistory(history[^1].Value, tracked.Window.Utilization)) history = [];
+            if (history.Count > 0 && PaceMath.ShouldResetPaceHistory(history[^1].Value, tracked.Window.Utilization))
+            {
+                history = [];
+                ClearPaceAlert(state, tracked.Key);
+            }
             history.Add((now, tracked.Window.Utilization));
             history.RemoveAll(sample => sample.Time < cutoff);
             state.UtilizationHistory[tracked.Key] = history;
@@ -781,6 +1009,7 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         LoginWindow.CloseCurrent();
         if (id == ActiveAccountId || Accounts.FirstOrDefault(a => a.Id == id) is not { } account) return;
         CancelInFlightWork();
+        DismissPaceToasts(ActiveAccountId);
         AppLogger.Shared.Info($"switched active account to {Short(id)}");
         Activate(account);
         Notify();
@@ -802,6 +1031,7 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         states[account.Id] = new AccountState();
         accountStore.SaveAccounts(Accounts);
         CancelInFlightWork();
+        DismissPaceToasts(ActiveAccountId);
         // A second "Add account" while a placeholder is active keeps the original to return to.
         if (ActiveAccount?.Pending != true) accountBeforePendingAdd = ActiveAccountId;
         ActiveAccountId = account.Id;
@@ -849,6 +1079,7 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
             doomed = new ClaudeApiClient(account);
         }
         _ = doomed.DeleteProfileAsync();
+        DismissPaceToasts(id);
         Accounts = Accounts.Where(a => a.Id != id).ToList();
         states.Remove(id);
         accountStore.SaveAccounts(Accounts);

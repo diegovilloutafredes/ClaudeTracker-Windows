@@ -75,6 +75,53 @@
                     <ComboBox x:Name="TimeFormatPicker" DockPanel.Dock="Right" MinWidth="190" FontSize="13" />
                 </DockPanel>
             </StackPanel>
+
+            <StackPanel x:Name="ResetSection" Margin="0,26,0,0">
+                <TextBlock x:Name="ResetHeader" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <CheckBox x:Name="Notify5HourSwitch" Style="{StaticResource Switch}" />
+                <CheckBox x:Name="Notify7DaySwitch" Style="{StaticResource Switch}" />
+                <CheckBox x:Name="ResetToastSwitch" Style="{StaticResource Switch}" />
+                <StackPanel x:Name="ResetToastOptions" Margin="20,0,0,0">
+                    <DockPanel Margin="0,6">
+                        <TextBlock x:Name="ResetDurationLabel" DockPanel.Dock="Left" FontSize="14" VerticalAlignment="Center" />
+                        <TextBlock x:Name="ResetDurationValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
+                        <Slider x:Name="ResetDurationSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
+                    </DockPanel>
+                    <CheckBox x:Name="ResetPermanentSwitch" Style="{StaticResource Switch}" />
+                </StackPanel>
+                <CheckBox x:Name="ResetSoundSwitch" Style="{StaticResource Switch}" />
+                <DockPanel Margin="0,8,0,0">
+                    <Button x:Name="ResetTestButton" DockPanel.Dock="Left" Padding="12,5" FontSize="13" />
+                    <TextBlock x:Name="ResetTestCaption" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
+            </StackPanel>
+
+            <StackPanel x:Name="PaceSection" Margin="0,26,0,0">
+                <TextBlock x:Name="PaceHeader" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <CheckBox x:Name="NotifyPaceSwitch" Style="{StaticResource Switch}" />
+                <StackPanel x:Name="PaceOptions">
+                    <DockPanel Margin="0,6">
+                        <TextBlock x:Name="WarningLabel" DockPanel.Dock="Left" FontSize="14" VerticalAlignment="Center" />
+                        <TextBlock x:Name="WarningValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
+                        <Slider x:Name="WarningSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
+                    </DockPanel>
+                    <CheckBox x:Name="PaceToastSwitch" Style="{StaticResource Switch}" />
+                    <StackPanel x:Name="PaceToastOptions" Margin="20,0,0,0">
+                        <DockPanel Margin="0,6">
+                            <TextBlock x:Name="PaceDurationLabel" DockPanel.Dock="Left" FontSize="14" VerticalAlignment="Center" />
+                            <TextBlock x:Name="PaceDurationValue" DockPanel.Dock="Right" FontSize="13" Width="46" TextAlignment="Right" VerticalAlignment="Center" />
+                            <Slider x:Name="PaceDurationSlider" Margin="18,0,0,0" VerticalAlignment="Center" IsSnapToTickEnabled="True" />
+                        </DockPanel>
+                        <CheckBox x:Name="PacePermanentSwitch" Style="{StaticResource Switch}" />
+                    </StackPanel>
+                    <CheckBox x:Name="PaceSoundSwitch" Style="{StaticResource Switch}" />
+                    <DockPanel Margin="0,8,0,0">
+                        <Button x:Name="PaceTestButton" DockPanel.Dock="Left" Padding="12,5" FontSize="13" />
+                        <TextBlock x:Name="PaceTestCaption" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </DockPanel>
+                </StackPanel>
+                <TextBlock x:Name="PaceCaption" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" />
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </Window>

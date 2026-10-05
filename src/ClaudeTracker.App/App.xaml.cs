@@ -73,6 +73,10 @@ public partial class App : Application
         tray.OpenRequested += popover.ShowNearCursor;
         tray.SettingsRequested += () => SettingsWindow.Open(viewModel);
         popover.SettingsRequested += () => SettingsWindow.Open(viewModel);
+        // Toasts share the popover's corner: while it shows, they stack above it.
+        ToastHost.Shared.Obstacle = () => popover.ScreenBounds;
+        popover.IsVisibleChanged += (_, _) => ToastHost.Shared.Arrange();
+        popover.SizeChanged += (_, _) => Dispatcher.BeginInvoke(ToastHost.Shared.Arrange);
         tray.QuitRequested += Shutdown;
         viewModel.Changed += RefreshTray;
 
@@ -96,6 +100,9 @@ public partial class App : Application
             ClaudeApiClient.StartOnFullPage = true;
             AppLogger.Shared.Info("host page: the full claude.ai page (--full-host-page)");
         }
+        // Development aids: a reset on the next poll; any pace counts as worth a warning.
+        UsageViewModel.SimulateResetOnce = e.Args.Contains("--reset-once");
+        UsageViewModel.PaceAlertAlways = e.Args.Contains("--pace-alert-always");
         // Development aid: the first fetch fails as a Cloudflare challenge would.
         if (e.Args.Contains("--challenge-once"))
         {
@@ -157,6 +164,7 @@ public partial class App : Application
         clock?.Stop();
         LoginWindow.CloseCurrent();
         SettingsWindow.CloseCurrent();
+        ToastHost.Shared.DismissAll();
         viewModel?.Shutdown();
         tray?.Dispose();
         showPopoverWait?.Unregister(null);

@@ -135,6 +135,29 @@ internal static class Native
     public const uint SwpNoZOrder = 0x0004;
     public const uint SwpNoActivate = 0x0010;
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Rect
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    public static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    public static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
+
+    /// <summary>GWL_EXSTYLE.</summary>
+    public const int ExtendedStyle = -20;
+    /// <summary>WS_EX_TOOLWINDOW: no taskbar button, not in Alt+Tab.</summary>
+    public const long ToolWindow = 0x00000080;
+    /// <summary>WS_EX_NOACTIVATE: clicking the window does not make it the active one.</summary>
+    public const long NoActivate = 0x08000000;
+
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 
