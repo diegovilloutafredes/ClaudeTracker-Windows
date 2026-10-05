@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # The app compares its own version with the release tags: a tag that is not the
+      # version in Directory.Build.props would ship an update that never looks newer.
+      - name: Check the tag against the version
+        shell: pwsh
+        run: |
+          $version = (Select-Xml -Path Directory.Build.props -XPath "//Version").Node.InnerText
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "The tag ${{ github.ref_name }} is not v$version, the version in Directory.Build.props."
+          }
+
+      # The tag and the push to main race; the tests run here too, so a release cannot
+      # ship a commit whose Build workflow fails a minute later.
+      - name: Test
+        run: dotnet test --configuration Release
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      # The same script that builds the setup by hand: what is released is what was tried.
+      - name: Build the setup
+        shell: pwsh
+        run: ./scripts/build-installer.ps1
+
+      # A draft. The update-signing key never leaves the maintainer's Mac, so nothing here
+      # can sign the setup. The app passes drafts over; scripts/publish-release.sh signs it,
+      # uploads ClaudeTracker-Setup.exe.sig and publishes.
+      - name: Create draft GitHub Release
+        shell: pwsh
+        run: gh release create "${{ github.ref_name }}" --draft --title "${{ github.ref_name }}" --generate-notes artifacts/ClaudeTracker-Setup.exe
+        env:
+          GH_TOKEN: ${{ github.token }}
