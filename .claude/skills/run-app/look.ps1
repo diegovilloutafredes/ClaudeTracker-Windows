@@ -20,7 +20,8 @@ else {
         $bmp = New-Object System.Drawing.Bitmap ([int]$r.Width), ([int]$r.Height)
         $g = [System.Drawing.Graphics]::FromImage($bmp)
         $g.CopyFromScreen([int]$r.X, [int]$r.Y, 0, 0, $bmp.Size)
-        $picture = Join-Path $OutDir "claudetracker-$Tag.png"
+        # One picture per window: the tag, then the window's name without its punctuation.
+        $picture = Join-Path $OutDir ("claudetracker-$Tag-" + (($w.Current.Name -replace '[^\p{L}\p{Nd}]+', '-').Trim('-')) + ".png")
         $bmp.Save($picture)
         $g.Dispose(); $bmp.Dispose()
         "  picture: $picture"

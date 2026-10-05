@@ -50,8 +50,8 @@ Start-Process $exe; Start-Sleep -Milliseconds 900     # show the popover
 powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\run-app\look.ps1 -Tag signed-in
 ```
 
-Reading the printed text is usually enough; read the PNG (`%TEMP%\claudetracker-<tag>.png`)
-when layout or colour matters. Window names: the popover is `Claude Tracker`, the sign-in
+Reading the printed text is usually enough; read the PNG when layout or colour matters
+(one per window: `%TEMP%\claudetracker-<tag>-<window name>.png`). Window names: the popover is `Claude Tracker`, the sign-in
 window `Sign in to Claude` (translated when Windows' display language is Spanish).
 
 ## Press a button
@@ -72,6 +72,14 @@ foreach ($window in $root.FindAll([System.Windows.Automation.TreeScope]::Childre
 
 "Quit" this way is the clean exit (it closes the browser processes too). The popover must
 be visible for its buttons to be found.
+
+Two things about windows that ask a question (Settings' rename and remove):
+
+- **They sit under their owner in the automation tree**, not beside it. Look for them among
+  the Settings window's descendants of type Window, not among the app's top-level windows.
+- **Close one before pressing anything else, and close it by its own close box**
+  (`WindowPattern.Close()`), which is Cancel. Never press "Remove" on the user's own
+  account: it deletes the session. Removal is tested on a second, throwaway sign-in.
 
 ## Cut the app off from the network
 
