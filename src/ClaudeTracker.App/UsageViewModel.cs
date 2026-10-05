@@ -762,6 +762,11 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     /// </summary>
     public void RemoveAccount(Guid id, Guid? preferredNext = null)
     {
+        // A sign-in window open on this account goes first: its page lives in the profile
+        // about to be deleted, and would be left open on nothing. For a placeholder, closing
+        // the window is the whole removal — its rollback does the rest, and the check below
+        // then finds nothing left to do.
+        if (ActiveAccountId == id && client is { IsLoginInProgress: true }) LoginWindow.CloseCurrent();
         if (Accounts.FirstOrDefault(a => a.Id == id) is not { } account) return;
         var wasActive = ActiveAccountId == id;
         ClaudeApiClient doomed;
