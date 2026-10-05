@@ -535,7 +535,10 @@ public class WindowsOnlyTests
     public void TheFiguresAreTheLatestTheHighestAndTheAverage()
     {
         Assert.Null(ChartLayout.Stats([]));
-        Assert.Equal((30, 50, 100.0 / 3), ChartLayout.Stats(Readings((0, 20), (1, 50), (2, 30))));
+        Assert.Equal((30, 50, 33), ChartLayout.Stats(Readings((0, 20), (1, 50), (2, 30))));
+        // The average is the whole number that is shown, and a half goes up as on the Mac:
+        // .NET's own rounding takes 12.5 to 12, the even one.
+        Assert.Equal((13, 13, 13), ChartLayout.Stats(Readings((0, 12), (1, 13))));
         // A pace chart leaves a fifth of headroom, and never collapses to nothing.
         Assert.Equal(60, ChartLayout.PaceScaleTop(Readings((0, 20), (1, 50), (2, 30))));
         Assert.Equal(1, ChartLayout.PaceScaleTop(Readings((0, 0.2))));
@@ -616,6 +619,52 @@ public class WindowsOnlyTests
             .Select(tick => TimeZoneInfo.ConvertTime(tick, zone))
             .Select(local => $"{local.Day}@{local.Hour}");
         Assert.Equal(expected, string.Join(" ", shown));
+    }
+
+    /// <summary>Clocks an hour forward at 02:00 on 8 March and back at 02:00 on 1 November, as in New York in 2026.</summary>
+    private static TimeZoneInfo NightChanges()
+    {
+        var two = new DateTime(1, 1, 1, 2, 0, 0);
+        var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+            DateTime.MinValue.Date, DateTime.MaxValue.Date, TimeSpan.FromHours(1),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(two, 3, 8),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(two, 11, 1));
+        return TimeZoneInfo.CreateCustomTimeZone("test-5", TimeSpan.FromHours(-5), "test", "test", "test summer", [rule]);
+    }
+
+    [Theory]
+    // The hour before the clocks go back: its marks are summer time's. Read as winter time's,
+    // 01:00 fell after the range's end, and a 1h chart had no time marks at all.
+    [InlineData("04:51", 1, "1:00-4 1:15-4 1:30-4 1:45-4")]
+    // Across the change the clock shows 01:30 twice, and the axis marks both.
+    [InlineData("05:30", 1, "1:30-4 1:45-4 1:00-5 1:15-5 1:30-5")]
+    // The hour after: winter time's, with nothing from the hour before.
+    [InlineData("06:10", 1, "1:15-5 1:30-5 1:45-5 2:00-5")]
+    [InlineData("02:00", 5, "22:00-4 0:00-4 2:00-5")]
+    public void TheHourTheClocksGoBackOverIsMarkedAsItHappens(string fromUtc, int hours, string expected)
+    {
+        var zone = NightChanges();
+        var lower = new DateTimeOffset(2026, 11, 1, int.Parse(fromUtc[..2]), int.Parse(fromUtc[3..]), 0, TimeSpan.Zero);
+        var ticks = ChartLayout.TimeTicks(lower, lower.AddHours(hours), zone);
+        Assert.Equal(expected, string.Join(" ", ticks.Select(tick => $"{tick.Hour}:{tick.Minute:00}{tick.Offset.Hours}")));
+        Assert.Equal(ticks.OrderBy(tick => tick), ticks);
+    }
+
+    [Theory]
+    // room for the popover, in its own units -> the tallest its list of charts may be
+    [InlineData(928, 678)]      // a 1440-line screen
+    // A 1080-line screen at 150 %, with the popup size at 125 % and at 150 %. Given the Mac
+    // app's floor of 320, the popover here stood 32 and 122 units taller than the screen.
+    [InlineData(538, 288)]
+    [InlineData(448, 198)]
+    public void TheChartsListLeavesRoomForWhatSurroundsIt(double available, double expected)
+    {
+        Assert.Equal(expected, ChartLayout.ListHeightLimit(available));
+        Assert.True(ChartLayout.ListHeightLimit(available) + ChartLayout.ListSurroundings <= available);
+        // The update banner and a notice stand above the list, and are room it does not have.
+        Assert.Equal(expected - 60, ChartLayout.ListHeightLimit(available, alsoShowing: 60));
+        // On a screen too small for all of it the list keeps enough to be scrolled.
+        Assert.Equal(ChartLayout.SmallestList, ChartLayout.ListHeightLimit(300));
     }
 
     [Fact]

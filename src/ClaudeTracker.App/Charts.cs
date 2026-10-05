@@ -529,7 +529,7 @@ internal sealed class ChartsTab
                             [new ChartLine(Charts.Downsample(pairs, Charts.Buckets, lower, upper), color, 1.5, Fill: Palette.With(color, 0.15))],
                             ticks, axis, ChartLayout.TimeTicks(lower, upper), time => ChartLayout.TimeLabel(time, span, use24Hour, culture: dates), palette.Ink));
         AutomationProperties.SetName(chart, label);
-        AutomationProperties.SetHelpText(chart, L.F("now %@, peak %@, average %@", format(stats.Now), format(stats.Peak), format(Math.Round(stats.Average))));
+        AutomationProperties.SetHelpText(chart, L.F("now %@, peak %@, average %@", format(stats.Now), format(stats.Peak), format(stats.Average)));
 
         void Follow()
         {
@@ -540,7 +540,7 @@ internal sealed class ChartsTab
             var first = reading is { } found
                 ? L.F("@ %@  %@", format(found.Value), ChartLayout.TimeLabel(found.Time, span, use24Hour, culture: dates))
                 : L.F("now %@", format(stats.Now));
-            figures.Text = L.F("%@  pk %@  avg %@", first, format(stats.Peak), format(Math.Round(stats.Average)));
+            figures.Text = L.F("%@  pk %@  avg %@", first, format(stats.Peak), format(stats.Average));
             chart.InvalidateVisual();
         }
         Join(chart, Follow);

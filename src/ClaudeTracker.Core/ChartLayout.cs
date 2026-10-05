@@ -22,7 +22,10 @@ public static class ChartLayout
         return pairs;
     }
 
-    /// <summary>The figures above a chart: the latest value, the highest, and the average. Null without samples.</summary>
+    /// <summary>
+    /// The figures above a chart: the latest value, the highest, and the average, which is
+    /// rounded here as it is shown — a half goes up, as on the Mac. Null without samples.
+    /// </summary>
     public static (double Now, double Peak, double Average)? Stats(IReadOnlyList<(DateTimeOffset Time, double Value)> pairs)
     {
         if (pairs.Count == 0) return null;
@@ -32,8 +35,30 @@ public static class ChartLayout
             peak = Math.Max(peak, value);
             sum += value;
         }
-        return (pairs[^1].Value, peak, sum / pairs.Count);
+        return (pairs[^1].Value, peak, Math.Round(sum / pairs.Count, MidpointRounding.AwayFromZero));
     }
+
+    /// <summary>
+    /// What stands around the charts' list in the popover, in the popover's own units: header,
+    /// tabs, range picker, footer, padding. Measured at 205; the Mac app allows the same 250,
+    /// and what is over leaves room for the gap between the popover and the screen's edge.
+    /// </summary>
+    public const double ListSurroundings = 250;
+
+    /// <summary>
+    /// The least the charts' list is given, on a screen too small for more: enough to show
+    /// that there is a list, and to scroll it. The Mac app's floor is 320, taller than the
+    /// room left on a 1080-line screen at 150 %, where the popover then stood off the top.
+    /// </summary>
+    public const double SmallestList = 80;
+
+    /// <summary>
+    /// The tallest the charts' scrolling list may be, so the popover never outgrows the screen:
+    /// the room there is, less what surrounds the list and whatever else is showing above it
+    /// (the update banner, a notice). All in the popover's own units.
+    /// </summary>
+    public static double ListHeightLimit(double available, double alsoShowing = 0) =>
+        Math.Max(available - ListSurroundings - alsoShowing, SmallestList);
 
     /// <summary>The top of a pace chart's scale: a fifth above the highest rate, and never under 1.</summary>
     public static double PaceScaleTop(IReadOnlyList<(DateTimeOffset Time, double Value)> pairs)
@@ -115,8 +140,9 @@ public static class ChartLayout
 
         // Counted on the wall clock from midnight, not in seconds from the first mark: the
         // marks then stay on round times whatever the offset from UTC, and when the clocks change.
-        var wall = TimeZoneInfo.ConvertTime(lower, timeZone).DateTime;
-        var origin = wall.Date;
+        var wallLower = TimeZoneInfo.ConvertTime(lower, timeZone).DateTime;
+        var wallUpper = TimeZoneInfo.ConvertTime(upper, timeZone).DateTime;
+        var origin = wallLower.Date;
         if (step > 86400)
         {
             // Or the marks would start wherever the range happens to.
@@ -124,10 +150,18 @@ public static class ChartLayout
             var sinceMonday = (long)(origin - FirstMonday).TotalDays;
             origin = origin.AddDays(-(((sinceMonday % days) + days) % days));
         }
-        var ticks = new List<DateTimeOffset>();
-        for (var count = (long)Math.Floor((wall - origin).TotalSeconds / step); ticks.Count < 8; count++)
+        // Every mark the wall clock shows anywhere near the range, each turned into the moment
+        // (or the two moments) it stands for, and kept if that falls inside. Where the clocks
+        // go back the wall clock at the end of the range can read earlier than at its start,
+        // so the walk begins a step and two hours before the earlier of the two readings.
+        var reach = Math.Max(step, 2 * 3600);
+        var earliest = (wallLower < wallUpper ? wallLower : wallUpper).AddSeconds(-reach);
+        var latest = (wallLower > wallUpper ? wallLower : wallUpper).AddSeconds(reach);
+        var ticks = new SortedSet<DateTimeOffset>();
+        for (var count = (long)Math.Floor((earliest - origin).TotalSeconds / step); ; count++)
         {
             var mark = origin.AddSeconds(count * step);
+            if (mark > latest) break;
             if (timeZone.IsInvalidTime(mark))
             {
                 // The clocks skip this moment. A day's mark moves to the first moment that day
@@ -135,11 +169,22 @@ public static class ChartLayout
                 if (step < 86400) continue;
                 mark = mark.AddHours(1);
             }
-            var tick = new DateTimeOffset(mark, timeZone.GetUtcOffset(mark));
-            if (tick > upper) break;
-            if (tick >= lower) ticks.Add(tick);
+            if (timeZone.IsAmbiguousTime(mark))
+            {
+                // The hour the clocks go back over happens twice, and so does its mark.
+                foreach (var offset in timeZone.GetAmbiguousTimeOffsets(mark)) Keep(new DateTimeOffset(mark, offset));
+            }
+            else
+            {
+                Keep(new DateTimeOffset(mark, timeZone.GetUtcOffset(mark)));
+            }
         }
-        return ticks;
+        return [.. ticks];
+
+        void Keep(DateTimeOffset tick)
+        {
+            if (tick >= lower && tick <= upper) ticks.Add(tick);
+        }
     }
 
     /// <summary>

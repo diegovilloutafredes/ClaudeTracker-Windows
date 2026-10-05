@@ -425,15 +425,24 @@ public partial class PopoverWindow : Window
     }
 
     /// <summary>
-    /// The tallest the charts' scrolling list may be, so the popover never outgrows the screen:
-    /// the work area less what surrounds the list (header, tabs, range picker, footer,
-    /// padding). In the popover's own units, which the popup size setting scales.
+    /// The tallest the charts' scrolling list may be, so the popover never outgrows the screen
+    /// (<see cref="ChartLayout.ListHeightLimit"/>). In the popover's own units, which the
+    /// popup size setting scales.
     /// </summary>
     private double MaxChartListHeight()
     {
         var area = (WinForms.Screen.PrimaryScreen ?? WinForms.Screen.AllScreens[0]).WorkingArea;
         var available = area.Height / VisualTreeHelper.GetDpi(this).DpiScaleY / appliedScale;
-        return Math.Max(available - 250, 320);
+        // The banner and the notice come and go, and both already hold this render's text.
+        return ChartLayout.ListHeightLimit(available, HeightOf(UpdateBanner) + HeightOf(NoticeText));
+
+        double HeightOf(FrameworkElement element)
+        {
+            if (element.Visibility != Visibility.Visible) return 0;
+            // Asked for now: one that has just appeared has not been laid out yet.
+            element.Measure(new Size(NaturalWidth - Root.Padding.Left - Root.Padding.Right - 2, double.PositiveInfinity));
+            return element.DesiredSize.Height;
+        }
     }
 
     private static readonly Brush Red = new SolidColorBrush(Color.FromRgb(0xD1, 0x3B, 0x3B));
