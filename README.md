@@ -9,8 +9,8 @@ It is the Windows port of [ClaudeTracker for macOS](https://github.com/diegovill
 
 > **Work in progress — there is nothing to install yet.** This repository holds the app's
 > platform-neutral core (the usage logic, the claude.ai payload decoders and their tests),
-> ported from the macOS app, and a first, unreleased build of the tray app on top of it:
-> tray icon, popover with the usage rows, sign-in, polling.
+> ported from the macOS app, and an unreleased build of the tray app on top of it: tray
+> icon, popover with usage rows and charts, sign-in, several accounts, alerts, settings.
 
 ## What it will do
 

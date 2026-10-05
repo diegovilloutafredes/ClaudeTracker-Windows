@@ -14,8 +14,9 @@ session. Open source, MIT licensed.
 
 **Status:** the platform-neutral library and its tests exist, and so does the app: tray
 icon, popover with usage rows and pace, sign-in window, polling (spec CT-001, done) and a
-Settings window with several accounts (CT-002, done), one row per account (CT-003) and
-alerts for resets and pace (CT-004) — specs in the workspace's `shared/features/`. That build has been run signed in (2026-10-05, through
+Settings window with several accounts (CT-002, done), one row per account (CT-003),
+alerts for resets and pace (CT-004, done) and the Charts tab (CT-006, done) — specs in the
+workspace's `shared/features/`. That build has been run signed in (2026-10-05, through
 Google with a passkey): sign-in is detected, usage rows appear, the session survives a
 relaunch, and polling recovers by itself after the network drops. What is still untried is
 listed under known debt in the workspace's `shared/TESTING.md`; `shared/PARITY_MATRIX.md`
@@ -44,6 +45,7 @@ src/ClaudeTracker.Core/               ← logic, API decoders, storage. net10.0,
   RowText.cs                          ← the words of the pace lines and of money; the popup size range
   Alerts.cs                           ← the words of the two alerts, which windows raise them, the sliders' ranges
   History.cs                          ← chart history, chart series, downsampling
+  ChartLayout.cs                      ← the charts' arithmetic: the forecast's frame, the axis marks, the figures
   Updates.cs                          ← release parsing, version compare, update signature verification
   FetchFailure.cs                     ← classification of in-page fetch failures; API errors
   Storage.cs                          ← preference keys, settings file, account roster and history files
@@ -56,10 +58,12 @@ src/ClaudeTracker.App/                ← the app: WPF + WebView2, everything th
   ClaudeApiClient.cs                  ← hidden WebView2 per account; runs fetch() in a claude.ai page
   TrayIcon.cs                         ← the tray icon, with the percentage drawn into it
   PopoverWindow.xaml(.cs)             ← the popover; rebuilt from the view model on every change
+  Charts.cs                           ← the Charts tab, the chart element it draws, the segmented picker
+  ViewCache.cs                        ← keeps a view's elements from one render to the next
   LoginWindow.xaml(.cs)               ← claude.ai's login page; detects the new session cookie
   SettingsWindow.xaml(.cs)            ← accounts, display and alert settings; its two questions (rename, remove)
   Toasts.cs                           ← the toasts above the tray: a window reset, a pace warning
-  Infrastructure.cs                   ← file locations, the log, light/dark detection, Win32 calls
+  Infrastructure.cs                   ← file locations, the log, light/dark detection, the symbol font, Win32 calls
 tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the shared test vectors
 .claude/skills/run-app/               ← how to launch the app and look at it from a terminal
 ```
@@ -81,6 +85,25 @@ tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the s
   take the keyboard focus from a switch. Its Display controls are made once and only their
   values refreshed, under a flag (`refreshing`) that keeps the change handlers from writing
   the same value back; the account list is rebuilt only when what it shows has changed.
+- **The Charts tab is not rebuilt either: it is one element, brought up to date**
+  (`ChartsTab.Refresh`). Rebuilt like the usage rows, it closed its own content menu,
+  scrolled its list back to the top and took the keyboard from its range picker at every
+  poll. Its fixed parts are made once; what comes and goes with the data — sections, charts,
+  figures — is asked of a `ViewCache` by name, so the same name gives the same element and
+  a render only changes what it says. Whatever is set on a kept element must be set at
+  every render: it remembers the last one. `PopoverWindow.Render` leaves the tab where it
+  is when it is already what the body shows.
+- **The charts are drawn by the app** (`MiniChart.OnRender`): no charting library. What
+  can be wrong without looking wrong is in `ChartLayout`, pure and tested — the forecast's
+  frame, "expected" at a moment, the pace scale, and the time axis's marks, which are
+  counted on the wall clock so they stay on round times when the clocks change.
+- **A symbol is an element of its own inside its button** (`Symbols.Text`), never the
+  button's font. A menu takes the font of the button it hangs from, and the symbol font
+  draws every letter as an empty box: the chart content menu showed seven boxes with ticks
+  while UI Automation read its labels correctly. Look at a picture of anything new.
+- **A menu of the popover closes with the popover** (`HidePopover`). One opened without a
+  click, as a screen reader opens it, on a popover that never had the focus, has nothing
+  else to close it.
 - **Switches apply on Checked and Unchecked, never on Click.** A screen reader toggles a
   switch without clicking it. The same goes for anything a test drives through UI
   Automation — which also presses buttons of a window that a question is blocking, hence

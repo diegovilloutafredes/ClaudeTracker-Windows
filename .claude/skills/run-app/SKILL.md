@@ -1,6 +1,6 @@
 ---
 name: run-app
-description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, cut it off from the network to test recovery, measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
+description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, hover and click with the real pointer where that is not enough, cut it off from the network to test recovery, measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
 ---
 
 # Running and checking the Windows app
@@ -90,6 +90,38 @@ Two things about windows that ask a question (Settings' rename and remove):
 - **Close one before pressing anything else, and close it by its own close box**
   (`WindowPattern.Close()`), which is Cancel. Never press "Remove" on the user's own
   account: it deletes the session. Removal is tested on a second, throwaway sign-in.
+
+## What only the real pointer can do
+
+UI Automation cannot hover, and its "press" does not close a menu that stays open while its
+ticks are changed. `pointer.ps1` moves the real pointer onto one element of the app, hovers
+or clicks, prints what the window (and any open menu or tooltip) says, and puts the pointer
+back:
+
+```powershell
+$pointer = ".claude\skills\run-app\pointer.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Utilization" -Type Image -At 0.7                # rest on the first chart, 70 % across
+powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Chart content" -Action click -Picture menu      # open the charts' menu, picture it
+powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Pace" -Type MenuItem -Action click -MinIdleSeconds 0   # tick an item; the menu stays
+powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Claude Tracker" -Type Text -Action click -MinIdleSeconds 0   # a click on the title closes it
+```
+
+- **It borrows the user's pointer, so it refuses to run while they are at the PC**: nothing
+  happens unless the last key or mouse input is at least `-MinIdleSeconds` old (20 by
+  default). Its own moves count as input, so the calls that follow the first pass
+  `-MinIdleSeconds 0` — only after the first one has run. Tell the user afterwards.
+- **Never cut its output short with `Select-Object -First`**: that ends the script before
+  it has put the pointer back. Filter with `Where-Object` instead.
+- **Always close a menu you opened**, with a click on the popover's title: an error in the
+  middle of a script otherwise leaves it open on the user's screen.
+- Hovering a chart sets every chart's figures to the reading there ("@ 8%  12:26  pk …");
+  hold still for a poll or two and they must not change back.
+
+**Read what UI Automation says, then look at the picture too.** They can disagree: the
+charts' menu once read "5-Hour, 7-Day, Utilization…" to UI Automation while every label was
+drawn as an empty box (it had taken the symbol font of the button it hangs from).
+`look.ps1` and `pointer.ps1` both picture menus and tooltips, which a plain copy of the
+screen leaves out.
 
 ## Cut the app off from the network
 
