@@ -57,6 +57,15 @@ public static class AlertText
 /// </summary>
 public static class AlertSettings
 {
+    /// <summary>
+    /// A slider's value as a screen reader says it: "30 minutes", not the "30m" beside the
+    /// slider, which is read out as a number and a letter.
+    /// </summary>
+    public static string MinutesInWords(int minutes) => minutes == 1 ? L.T("1 minute") : L.F("%d minutes", minutes);
+
+    /// <inheritdoc cref="MinutesInWords"/>
+    public static string SecondsInWords(int seconds) => seconds == 1 ? L.T("1 second") : L.F("%d seconds", seconds);
+
     /// <summary>Seconds a toast stays, as the "Duration" slider allows.</summary>
     public const double ToastSecondsMinimum = 1;
     public const double ToastSecondsMaximum = 30;

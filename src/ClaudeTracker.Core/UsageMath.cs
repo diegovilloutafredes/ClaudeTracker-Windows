@@ -442,6 +442,19 @@ public static class Resets
 
 public static class TimeText
 {
+    /// <summary>
+    /// The culture dates are written in. Windows keeps two: the display language, and the
+    /// regional format, which may be another language's. A date written in the regional
+    /// format's language inside a sentence in the display language reads as a mistake
+    /// ("Se reinicia en 2 días · Thu, Oct 8 at 15:50"), so the regional format is used only
+    /// while it speaks the display language. The Mac app has one locale for both.
+    /// </summary>
+    public static CultureInfo DisplayCulture(CultureInfo regional, CultureInfo display) =>
+        regional.TwoLetterISOLanguageName == display.TwoLetterISOLanguageName ? regional : display;
+
+    /// <summary><see cref="DisplayCulture(CultureInfo, CultureInfo)"/> for this thread's two cultures.</summary>
+    public static CultureInfo DisplayCulture() => DisplayCulture(CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
+
     /// <summary>Whether a culture conventionally uses a 24-hour clock — seeds the Time format setting on first launch.</summary>
     public static bool Prefers24HourClock(CultureInfo culture) =>
         culture.DateTimeFormat.ShortTimePattern.Contains('H');

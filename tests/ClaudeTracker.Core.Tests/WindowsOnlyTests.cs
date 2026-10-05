@@ -670,6 +670,47 @@ public class WindowsOnlyTests
     public void AStoredPopupSizeIsBroughtIntoRange(double? stored, double expected) =>
         Assert.Equal(expected, PopupScale.Normalized(stored));
 
+    // MARK: - Spanish and screen readers (CT-007)
+
+    [Fact]
+    public void ADateIsWrittenInTheLanguageOfTheSentenceAroundIt()
+    {
+        var english = new System.Globalization.CultureInfo("en-US");
+        var chile = new System.Globalization.CultureInfo("es-CL");
+        var spanish = new System.Globalization.CultureInfo("es");
+        // The regional format speaks the display language: it is the one to use, with its own habits.
+        Assert.Same(chile, TimeText.DisplayCulture(regional: chile, display: spanish));
+        Assert.Same(english, TimeText.DisplayCulture(regional: english, display: english));
+        // It does not: a Spanish sentence must not end in "Thu, Oct 8", nor an English one in "jue, 8 oct".
+        Assert.Same(spanish, TimeText.DisplayCulture(regional: english, display: spanish));
+        Assert.Same(english, TimeText.DisplayCulture(regional: chile, display: english));
+
+        var reset = new DateTimeOffset(2026, 10, 8, 15, 50, 0, TimeSpan.Zero);
+        var now = reset.AddDays(-3);
+        var inSpanish = TimeText.ResetTimeText(reset, now, use24Hour: true, includeDate: true, TimeZoneInfo.Utc,
+                                               TimeText.DisplayCulture(regional: english, display: spanish));
+        Assert.DoesNotContain("Thu", inSpanish);
+        Assert.Contains("oct", inSpanish);
+    }
+
+    [Theory]
+    [InlineData(1, "1 minute", "1 minuto")]
+    [InlineData(30, "30 minutes", "30 minutos")]
+    public void ASliderSaysItsMinutesInWords(int minutes, string english, string spanish)
+    {
+        Assert.Equal(english, AlertSettings.MinutesInWords(minutes));
+        Assert.Equal(spanish, minutes == 1 ? L.Lookup("es", "1 minute") : L.Format("es", "%d minutes", minutes));
+    }
+
+    [Theory]
+    [InlineData(1, "1 second", "1 segundo")]
+    [InlineData(5, "5 seconds", "5 segundos")]
+    public void ASliderSaysItsSecondsInWords(int seconds, string english, string spanish)
+    {
+        Assert.Equal(english, AlertSettings.SecondsInWords(seconds));
+        Assert.Equal(spanish, seconds == 1 ? L.Lookup("es", "1 second") : L.Format("es", "%d seconds", seconds));
+    }
+
     // MARK: - Launch at sign-in (CT-005)
 
     private const string Here = @"C:\Users\me\AppData\Local\Programs\ClaudeTracker\ClaudeTracker.exe";
