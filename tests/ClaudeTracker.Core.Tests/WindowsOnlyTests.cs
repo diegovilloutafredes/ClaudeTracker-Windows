@@ -669,4 +669,162 @@ public class WindowsOnlyTests
     [InlineData(9.0, 1.5)]
     public void AStoredPopupSizeIsBroughtIntoRange(double? stored, double expected) =>
         Assert.Equal(expected, PopupScale.Normalized(stored));
+
+    // MARK: - Launch at sign-in (CT-005)
+
+    private const string Here = @"C:\Users\me\AppData\Local\Programs\ClaudeTracker\ClaudeTracker.exe";
+    private static readonly string Wanted = LoginItem.Command(Here);
+
+    [Fact]
+    public void TheSignInEntryStartsTheAppQuietly()
+    {
+        Assert.Equal("\"" + Here + "\" --background", Wanted);
+        Assert.Equal(Here, LoginItem.ExecutablePath(Wanted));
+        Assert.Equal(@"C:\apps\ClaudeTracker.exe", LoginItem.ExecutablePath(@"C:\apps\ClaudeTracker.exe --background"));
+        Assert.Null(LoginItem.ExecutablePath(null));
+        Assert.Null(LoginItem.ExecutablePath("   "));
+        Assert.Null(LoginItem.ExecutablePath("\"unclosed"));
+    }
+
+    [Theory]
+    // What Task Manager and Settings write beside an entry: even while it is allowed, odd once switched off.
+    [InlineData(new byte[] { }, true)]
+    [InlineData(new byte[] { 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, true)]
+    [InlineData(new byte[] { 0x06, 0, 0, 0 }, true)]
+    [InlineData(new byte[] { 0x03, 0, 0, 0, 0x10, 0x9A, 0x55, 0x01, 0xCC, 0x35, 0xDC, 0x01 }, false)]
+    [InlineData(new byte[] { 0x07, 0, 0, 0 }, false)]
+    // Written by Windows 11's Settings on 2026-10-05: off, then on again.
+    [InlineData(new byte[] { 0x01, 0, 0, 0, 0x22, 0x05, 0xCA, 0x73, 0xEF, 0x54, 0xDD, 0x01 }, false)]
+    [InlineData(new byte[] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, true)]
+    public void WindowsNotesAnEntryTheUserSwitchedOff(byte[] note, bool allowed) =>
+        Assert.Equal(allowed, LoginItem.IsAllowed(note));
+
+    [Fact]
+    public void AnInstalledCopyOptsInOnceAndThenFollowsWhatWasDoneElsewhere()
+    {
+        // The first run of an installed copy: on, and registered.
+        Assert.Equal(new LoginItemStep(true, true), LoginItem.AtStart(true, null, null, allowed: true, Wanted, false));
+        // ...unless an earlier install's entry was switched off: that still stands.
+        Assert.Equal(new LoginItemStep(false, false), LoginItem.AtStart(true, null, Wanted, allowed: false, Wanted, true));
+
+        // On, registered, allowed: nothing to do.
+        Assert.Equal(default, LoginItem.AtStart(true, true, Wanted, allowed: true, Wanted, true));
+        // Switched off in Task Manager: the switch follows, and the entry is not written again.
+        Assert.Equal(new LoginItemStep(false, false), LoginItem.AtStart(true, true, Wanted, allowed: false, Wanted, true));
+        // Removed by a cleanup tool: the same.
+        Assert.Equal(new LoginItemStep(false, false), LoginItem.AtStart(true, true, null, allowed: true, Wanted, false));
+        // Off in the app stays off: nothing registered, or still switched off in Windows.
+        Assert.Equal(default, LoginItem.AtStart(true, false, null, allowed: true, Wanted, false));
+        Assert.Equal(default, LoginItem.AtStart(true, false, Wanted, allowed: false, Wanted, true));
+        // Switched back on in Windows' own list: Windows will start the app, so the switch
+        // says so. Nothing is written — the entry is already there.
+        Assert.Equal(new LoginItemStep(true, false), LoginItem.AtStart(true, false, Wanted, allowed: true, Wanted, true));
+        // Another copy's entry is not this copy's business.
+        Assert.Equal(default, LoginItem.AtStart(true, false, LoginItem.Command(@"D:\Other\ClaudeTracker.exe"), allowed: true, Wanted, true));
+    }
+
+    [Fact]
+    public void TheEntryMovesOnlyWhenTheCopyItNamesIsGone()
+    {
+        var elsewhere = LoginItem.Command(@"D:\Old\ClaudeTracker.exe");
+        // Installed again in another folder, the old one deleted: this copy takes the entry over.
+        Assert.Equal(new LoginItemStep(null, true), LoginItem.AtStart(true, true, elsewhere, allowed: true, Wanted, registeredCopyExists: false));
+        // Another copy that is still there keeps it.
+        Assert.Equal(default, LoginItem.AtStart(true, true, elsewhere, allowed: true, Wanted, registeredCopyExists: true));
+        // The same copy, written with other capitals, is the same copy.
+        Assert.Equal(default, LoginItem.AtStart(true, true, Wanted.ToUpperInvariant().Replace("--BACKGROUND", "--background"), allowed: true, Wanted, registeredCopyExists: false));
+    }
+
+    [Fact]
+    public void InstallingAgainAfterAnUninstallKeepsWhatTheUserHadChosen()
+    {
+        // The uninstaller took the entry with the copy before. The settings were kept, and say "on".
+        Assert.Equal(new LoginItemStep(null, true), LoginItem.AtStart(true, true, null, allowed: true, Wanted, false, justInstalled: true));
+        // The same missing entry on any other start was removed by someone: the switch follows.
+        Assert.Equal(new LoginItemStep(false, false), LoginItem.AtStart(true, true, null, allowed: true, Wanted, false, justInstalled: false));
+        // Off before the uninstall is still off after the reinstall.
+        Assert.Equal(default, LoginItem.AtStart(true, false, null, allowed: true, Wanted, false, justInstalled: true));
+        // And a first install ever opts in, as on any first run.
+        Assert.Equal(new LoginItemStep(true, true), LoginItem.AtStart(true, null, null, allowed: true, Wanted, false, justInstalled: true));
+    }
+
+    [Fact]
+    public void ACopyRunFromABuildFolderLeavesSignInAlone()
+    {
+        foreach (bool? preference in new bool?[] { null, true, false })
+        {
+            Assert.Equal(default, LoginItem.AtStart(installed: false, preference, null, allowed: true, Wanted, false));
+            Assert.Equal(default, LoginItem.AtStart(installed: false, preference, Wanted, allowed: false, Wanted, true));
+        }
+    }
+
+    // MARK: - Updates (CT-005)
+
+    [Theory]
+    [InlineData(4 * 3600, "Checks every ~4h — on launch and wake")]
+    [InlineData(12 * 3600, "Checks every ~12h — on launch and wake")]
+    [InlineData(23.4 * 3600, "Checks every ~23h — on launch and wake")]
+    [InlineData(23.5 * 3600, "Checks every ~1d — on launch and wake")]
+    [InlineData(24 * 3600, "Checks every ~1d — on launch and wake")]
+    public void TheCheckIntervalIsSaidInHoursThenInDays(double seconds, string expected) =>
+        Assert.Equal(expected, Updates.CheckIntervalLabel(seconds));
+
+    [Fact]
+    public void ASetupFileIsRunTheQuietWayAndComparedByItsOwnVersion()
+    {
+        // The setup script reads AppArgs and hands it to the app it starts: the two must agree.
+        Assert.Contains("/VERYSILENT", Updates.SilentInstallArguments);
+        Assert.Contains("/AppArgs=--background", Updates.SilentInstallArguments);
+        Assert.EndsWith("--background", LoginItem.Command("x"));
+        Assert.Equal("1.4.0", Updates.SetupVersion(1, 4, 0));
+        Assert.True(Updates.IsNewerVersion(Updates.SetupVersion(1, 10, 0), "1.9.2"));
+        Assert.False(Updates.IsNewerVersion(Updates.SetupVersion(0, 1, 0), "0.1.0"));
+        Assert.Contains("/ClaudeTracker-Windows/", Updates.ReleasesUrl);
+    }
+
+    /// <summary>
+    /// The whole decision about a downloaded setup, against the real release key: the fixture
+    /// was signed on the maintainer's Mac, so this is the one place the "yes, run it" answer
+    /// is reached without that Mac.
+    /// </summary>
+    [Fact]
+    public void ADownloadedSetupIsRunOnlyWhenSignedAndNewer()
+    {
+        var file = Fixture.Bytes("signing-check.txt");
+        var signature = Fixture.Bytes("signing-check.txt.sig");
+        Assert.Equal(SetupVerdict.Run, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, "1.3.0", "1.2.9"));
+        // Genuine, but the release's file is not the newer version it was offered as.
+        Assert.Equal(SetupVerdict.NotNewer, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, "1.2.9", "1.2.9"));
+        Assert.Equal(SetupVerdict.NotNewer, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, "1.2.0", "1.2.9"));
+
+        // One byte off, a signature of something else, no signature: never run, whatever version it claims.
+        var tampered = (byte[])file.Clone();
+        tampered[0] ^= 1;
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(tampered, signature, Updates.SigningPublicKey, "9.9.9", "1.2.9"));
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, new byte[64], Updates.SigningPublicKey, "9.9.9", "1.2.9"));
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, [], Updates.SigningPublicKey, "9.9.9", "1.2.9"));
+        // And a key that is not the embedded one does not vouch for the file either.
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, signature, new byte[32], "9.9.9", "1.2.9"));
+    }
+
+    [Theory]
+    [InlineData("https://github.com/diegovilloutafredes/ClaudeTracker-Windows/releases/tag/v1.2.0", true)]
+    [InlineData("http://127.0.0.1:8123/release.html", true)]
+    // Windows runs or opens whatever it is handed: none of these may come out of a release.
+    [InlineData("file:///C:/Windows/System32/calc.exe", false)]
+    [InlineData("C:\\Windows\\System32\\calc.exe", false)]
+    [InlineData("ms-settings:startupapps", false)]
+    [InlineData("javascript:alert(1)", false)]
+    public void OnlyAWebAddressIsOpenedFromARelease(string address, bool opens) =>
+        Assert.Equal(opens, Updates.IsWebLink(new Uri(address, UriKind.RelativeOrAbsolute)));
+
+    [Fact]
+    public void AReleasePageThatIsNotAWebAddressIsStillNotOpened()
+    {
+        Assert.False(Updates.IsWebLink(null));
+        var (update, _) = Updates.ParseGitHubReleases(
+            """[{"tag_name":"v9.0.0","html_url":"file:///C:/Windows/System32/calc.exe","published_at":"2026-10-01T00:00:00Z","assets":[]}]""", "1.0.0");
+        Assert.NotNull(update);
+        Assert.False(Updates.IsWebLink(update!.ReleaseUrl));
+    }
 }

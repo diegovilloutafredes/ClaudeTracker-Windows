@@ -12,6 +12,17 @@ namespace ClaudeTracker.Core;
 /// <param name="SignatureUrl">The installer's detached Ed25519 signature, set with <paramref name="DownloadUrl"/>.</param>
 public sealed record UpdateInfo(string Version, Uri ReleaseUrl, Uri? DownloadUrl, Uri? SignatureUrl = null);
 
+/// <summary>What <see cref="Updates.JudgeSetup"/> makes of a downloaded setup.</summary>
+public enum SetupVerdict
+{
+    /// <summary>Signed by the release key, and newer than this copy.</summary>
+    Run,
+    /// <summary>Not signed by the release key. Never run; counts as a failed install.</summary>
+    SignatureInvalid,
+    /// <summary>Genuine, but not newer than this copy: the release's file changed after it was found.</summary>
+    NotNewer,
+}
+
 /// <summary>
 /// The pure half of the in-app update flow — the Windows twins of the helpers in the macOS app's
 /// UpdateService.swift, sharing its signing key.
@@ -33,8 +44,60 @@ public static partial class Updates
     /// </summary>
     public static ReadOnlySpan<byte> SigningPublicKey => Convert.FromBase64String("rnHlUrHGhtrUIQAgZxvIHG5vO1kvTZNxRDR+KTFmcIg=");
 
+    /// <summary>
+    /// This app's releases, newest first: the Windows repo's, never the Mac repo's. The Mac
+    /// app reads its own repo the same way.
+    /// </summary>
+    public const string ReleasesUrl = "https://api.github.com/repos/diegovilloutafredes/ClaudeTracker-Windows/releases?per_page=10";
+
+    /// <summary>
+    /// How the app runs a setup it downloaded: no window, no question, no restart of Windows,
+    /// and <c>AppArgs</c>, which the setup hands to the app it starts when it is done — so an
+    /// update comes back without showing anything.
+    /// </summary>
+    public const string SilentInstallArguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /AppArgs=--background";
+
     /// <summary>Failed installs of one release that auto-install tolerates before it stops retrying.</summary>
     public const int MaxAutoInstallAttempts = 3;
+
+    /// <summary>Seconds between "an update was found" and its install starting: time to switch auto-install off.</summary>
+    public const int AutoInstallCountdownSeconds = 10;
+
+    /// <summary>The line under "Auto-install updates": how often the app checks.</summary>
+    public static string CheckIntervalLabel(double intervalSeconds)
+    {
+        var hours = Math.Round(intervalSeconds / 3600, MidpointRounding.AwayFromZero);
+        return hours < 24
+            ? L.F("Checks every ~%dh — on launch and wake", (int)hours)
+            : L.F("Checks every ~%dd — on launch and wake", Math.Max(1, (int)Math.Round(hours / 24, MidpointRounding.AwayFromZero)));
+    }
+
+    /// <summary>
+    /// The version a setup file carries, from the three numbers Windows reads out of it.
+    /// Compared with the running version before a downloaded setup is run: the release was
+    /// found up to a day earlier, and its file could have been replaced since.
+    /// </summary>
+    public static string SetupVersion(int major, int minor, int build) => $"{major}.{minor}.{build}";
+
+    /// <summary>
+    /// Whether a downloaded setup may be run: signed by the key compiled into the app, and a
+    /// newer version than the copy that is running. The signature comes first — nothing a
+    /// file says about itself counts until the file is known to be the maintainer's.
+    /// </summary>
+    public static SetupVerdict JudgeSetup(ReadOnlySpan<byte> setup, ReadOnlySpan<byte> signature, ReadOnlySpan<byte> publicKey,
+                                          string setupVersion, string currentVersion)
+    {
+        if (!VerifyUpdateSignature(setup, signature, publicKey)) return SetupVerdict.SignatureInvalid;
+        return IsNewerVersion(setupVersion, currentVersion) ? SetupVerdict.Run : SetupVerdict.NotNewer;
+    }
+
+    /// <summary>
+    /// Whether an address from a release may be handed to Windows to open. Windows opens
+    /// whatever it is given — a file, a program, another app's own kind of link — so only a
+    /// web address passes: "Download" must never be able to run something.
+    /// </summary>
+    public static bool IsWebLink(Uri? address) =>
+        address is { IsAbsoluteUri: true } && (address.Scheme == Uri.UriSchemeHttps || address.Scheme == Uri.UriSchemeHttp);
 
     [GeneratedRegex(@"^\d+(\.\d+)*$")]
     private static partial Regex PlainVersion();

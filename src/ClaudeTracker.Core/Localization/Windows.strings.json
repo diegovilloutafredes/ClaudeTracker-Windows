@@ -5,6 +5,8 @@
   "Sound": { "es": "Sonido" },
   "Open": { "es": "Abrir" },
   "Launch when I sign in to Windows": { "es": "Iniciar al entrar a Windows" },
+  "Setup stopped before installing (code %d)": { "es": "La instalación se detuvo antes de empezar (código %d)" },
+  "Couldn't download the update": { "es": "No se pudo descargar la actualización" },
   "Opens Claude in a sign-in window.": { "es": "Abre Claude en una ventana de inicio de sesión." },
   "Resets in %@": { "es": "Se reinicia en %@" },
   "%d hr, %d min": { "es": "%d h, %d min" },
