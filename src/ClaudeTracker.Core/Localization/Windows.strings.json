@@ -1,0 +1,20 @@
+{
+  "Tray icon shows": { "es": "El icono de la bandeja muestra" },
+  "Show pace in tray tooltip": { "es": "Mostrar ritmo en la descripción del icono" },
+  "Toast near the system tray": { "es": "Aviso junto a la bandeja del sistema" },
+  "Sound": { "es": "Sonido" },
+  "Open": { "es": "Abrir" },
+  "Launch when I sign in to Windows": { "es": "Iniciar al entrar a Windows" },
+  "Opens Claude in a sign-in window.": { "es": "Abre Claude en una ventana de inicio de sesión." },
+  "Resets in %@": { "es": "Se reinicia en %@" },
+  "%d hr, %d min": { "es": "%d h, %d min" },
+  "%d hr": { "es": "%d h" },
+  "%d min": { "es": "%d min" },
+  "%d days": { "es": "%d días" },
+  "1 day": { "es": "1 día" },
+  "less than a minute": { "es": "menos de un minuto" },
+  "Couldn't reach claude.ai": { "es": "No se pudo conectar con claude.ai" },
+  "claude.ai took too long to answer": { "es": "claude.ai tardó demasiado en responder" },
+  "Microsoft Edge WebView2 is missing on this PC. Install it from Microsoft and try again.": { "es": "Falta Microsoft Edge WebView2 en este PC. Instálalo desde Microsoft y vuelve a intentarlo." },
+  "Couldn't read your saved accounts. Quit Claude Tracker and open it again.": { "es": "No se pudieron leer tus cuentas guardadas. Cierra Claude Tracker y vuelve a abrirlo." }
+}

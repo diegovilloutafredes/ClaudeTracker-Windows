@@ -1,0 +1,11 @@
+# Text is stored and checked out with LF on every OS, so files compare byte for byte across
+# machines (Git for Windows defaults to converting line endings).
+* text=auto eol=lf
+
+# Byte-identical copies of the workspace's canonical data (shared/fixtures, shared/copy):
+# never converted, or the copy check and the signature test would fail on Windows.
+tests/**/Fixtures/** -text
+src/ClaudeTracker.Core/Localization/Localizable.xcstrings -text
+*.sig binary
+*.ico binary
+*.png binary

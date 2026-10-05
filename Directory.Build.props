@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NeutralLanguage>en</NeutralLanguage>
+    <Product>ClaudeTracker</Product>
+    <Company>Diego Villouta Fredes</Company>
+    <Copyright>© 2026 Diego Villouta Fredes. Unofficial tool — not affiliated with or endorsed by Anthropic.</Copyright>
+  </PropertyGroup>
+
+  <!--
+    The one place the app's version lives. The updater compares it against this repo's
+    release tags (v<Version>), so a release bumps this line and tags the same number.
+  -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <!-- No "+commit" suffix: the app compares this string against release tags. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

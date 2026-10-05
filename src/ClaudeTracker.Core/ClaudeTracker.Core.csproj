@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ClaudeTracker.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Ed25519 verification of update signatures: .NET 10 has no built-in Ed25519. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Localizable.xcstrings is a byte-identical copy of the workspace's canonical string catalog
+      (shared/copy/, authored in the macOS repo) — shared data, never shared code. Strings only
+      Windows shows live in Windows.strings.json.
+    -->
+    <EmbeddedResource Include="Localization\Localizable.xcstrings" LogicalName="ClaudeTracker.Core.Localizable.xcstrings" />
+    <EmbeddedResource Include="Localization\Windows.strings.json" LogicalName="ClaudeTracker.Core.Windows.strings.json" />
+    <InternalsVisibleTo Include="ClaudeTracker.Core.Tests" />
+  </ItemGroup>
+
+</Project>

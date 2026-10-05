@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+*.user
+.vs/
+
+# Installer output
+dist/
+
+# Local tool state
+.claude/settings.local.json

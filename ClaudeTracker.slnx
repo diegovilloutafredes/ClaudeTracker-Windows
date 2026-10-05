@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ClaudeTracker.App/ClaudeTracker.App.csproj" />
+    <Project Path="src/ClaudeTracker.Core/ClaudeTracker.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ClaudeTracker.Core.Tests/ClaudeTracker.Core.Tests.csproj" />
+  </Folder>
+</Solution>
