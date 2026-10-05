@@ -325,6 +325,10 @@ public partial class PopoverWindow : Window
         }
 
         Body.Children.Clear();
+        if (viewModel.Notice is { } notice)
+        {
+            Body.Children.Add(Text(notice, 12, Secondary, bottom: 12));
+        }
         if (!viewModel.IsAuthenticated)
         {
             if (viewModel.SessionNeedsSignIn) RenderExpired();

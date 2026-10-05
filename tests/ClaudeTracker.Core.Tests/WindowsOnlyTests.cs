@@ -349,6 +349,68 @@ public class WindowsOnlyTests
         Assert.Null(PaceText.Outlook(2, reset, reset.AddMinutes(1))); // the reset has passed
     }
 
+    // MARK: - An account that is already there (CT-003)
+    //
+    // Windows has this rule first; the Mac app's twin and its test come with its side of CT-003.
+
+    private static Account Row(string label, string? email, string plan = "Pro") =>
+        new() { Label = label, Email = email, SubscriptionLabel = email is null ? null : plan };
+
+    [Fact]
+    public void SigningInAnAccountThatIsAlreadyThereKeepsItsRowAndGivesItTheNewSession()
+    {
+        var work = Row("Work", "ana@company.com", "Team");
+        var home = Row("Home", "ana@example.com");
+        var added = Row("Claude account", null);
+        var roster = new[] { work, home, added };
+
+        var merge = Accounts.MergeDuplicate(roster, added.Id, "  Ana@Example.com ");
+
+        Assert.NotNull(merge);
+        // Its own name, id, plan and place in the list — only the session is the new one.
+        Assert.Equal(home with { ProfileId = added.ProfileId }, merge.Kept);
+        Assert.Equal([work, merge.Kept], merge.Roster);
+        Assert.Equal(home.ProfileName, merge.AbandonedProfile);
+        Assert.NotEqual(merge.Kept.ProfileName, merge.AbandonedProfile);
+    }
+
+    [Fact]
+    public void ANewAccountIsNotMergedIntoAnything()
+    {
+        var home = Row("Home", "ana@example.com");
+        var added = Row("Claude account", null);
+        Assert.Null(Accounts.MergeDuplicate([home, added], added.Id, "bruno@example.com"));
+        Assert.Null(Accounts.MergeDuplicate([added], added.Id, "ana@example.com"));
+    }
+
+    [Fact]
+    public void SigningAnAccountBackInIsNotAMerge()
+    {
+        // Two rows that already share an email (made before the rule existed): signing one of
+        // them in again must not make the other swallow it.
+        var first = Row("First", "ana@example.com");
+        var second = Row("Second", "ana@example.com");
+        Assert.Null(Accounts.MergeDuplicate([first, second], second.Id, "ana@example.com"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void WithoutAnEmailThereIsNothingToCompare(string? email)
+    {
+        var home = Row("Home", "ana@example.com");
+        var added = Row("Claude account", null);
+        Assert.Null(Accounts.MergeDuplicate([home, added], added.Id, email));
+    }
+
+    [Fact]
+    public void ARowThatIsNotInTheRosterMergesNothing()
+    {
+        var home = Row("Home", "ana@example.com");
+        Assert.Null(Accounts.MergeDuplicate([home], Guid.NewGuid(), "ana@example.com"));
+    }
+
     // MARK: - Extra usage and popup size
 
     [Theory]

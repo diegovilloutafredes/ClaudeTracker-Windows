@@ -72,6 +72,31 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     /// </summary>
     public string? StorageProblem { get; private set; }
 
+    /// <summary>
+    /// A sentence telling the user what the app just did on its own, shown for a short while
+    /// in the popover and in Settings. Not an error: nothing is wrong and nothing is asked.
+    /// </summary>
+    public string? Notice { get; private set; }
+
+    private CancellationTokenSource? noticeCancellation;
+
+    private void ShowNotice(string text)
+    {
+        noticeCancellation?.Cancel();
+        var cancellation = noticeCancellation = new CancellationTokenSource();
+        Notice = text;
+        Notify();
+        _ = ClearLaterAsync();
+
+        async Task ClearLaterAsync()
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(30), cancellation.Token); }
+            catch (OperationCanceledException) { return; }
+            Notice = null;
+            Notify();
+        }
+    }
+
     // MARK: - Preferences
 
     /// <summary>Which window's utilization the tray icon tracks.</summary>
@@ -394,6 +419,13 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         {
             var info = await svc.FetchAccountInfoAsync(cancellation);
             if (cancellation.IsCancellationRequested) return;
+            // Who signed in is only known now. If that account was already here, its row
+            // takes the new session and the row made for this sign-in goes.
+            if (Core.Accounts.MergeDuplicate(Accounts, id, info.EmailAddress) is { } merge)
+            {
+                AdoptSession(id, merge, info);
+                return;
+            }
             State(id).AccountInfo = info;
             ApplyAccountInfoToRoster(id, info);
             Notify();
@@ -406,6 +438,42 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
             // A switch cancels the session (and tears the client down): not a failure.
             if (!cancellation.IsCancellationRequested) AppLogger.Shared.Error($"account info fetch failed: {e.Message}");
         }
+    }
+
+    /// <summary>
+    /// Applies a <see cref="DuplicateMerge"/>: the account that was already here keeps its row,
+    /// its name and its history, and polls from the session just made; the row added for the
+    /// sign-in is dropped, and the session it replaces is deleted.
+    /// </summary>
+    private void AdoptSession(Guid addedId, DuplicateMerge merge, AccountInfo info)
+    {
+        var keptId = merge.Kept.Id;
+        AppLogger.Shared.Info($"account {Short(addedId)} is {Short(keptId)}, signed in again: kept that row and gave it the new session");
+        // Either row may be the active one: the added one normally, the kept one if the user
+        // switched back before this answer arrived. Both mean a client on a profile that is
+        // changing hands or going away, so it is closed before anything else.
+        var restart = ActiveAccountId == addedId || ActiveAccountId == keptId;
+        if (restart)
+        {
+            CancelInFlightWork();
+            client?.TearDown();
+            client = null;
+        }
+        Accounts = merge.Roster;
+        accountStore.SaveAccounts(Accounts);
+        accountStore.DeleteHistory(addedId);
+        states.Remove(addedId);
+        var state = State(keptId);
+        state.AccountInfo = info;
+        state.Error = null;
+        state.SessionExpired = false;
+        state.Consecutive401s = 0;
+        state.ConsecutiveErrors = 0;
+        ApplyAccountInfoToRoster(keptId, info);
+        // Only now: nothing is open on the old profile any more.
+        _ = WebViewHost.DeleteProfileAsync(merge.AbandonedProfile);
+        if (restart && Accounts.FirstOrDefault(a => a.Id == keptId) is { } kept) Activate(kept);
+        ShowNotice(L.T("That account was already here. Its sign-in has been refreshed."));
     }
 
     /// <summary>Fetches account info again after a successful poll while it is still missing — at most every 5 minutes.</summary>

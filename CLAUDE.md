@@ -102,6 +102,12 @@ tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the s
   `--page-heap` logs the page's heap once a minute to watch it.
 - **One WebView2 profile per account** (`Account.ProfileName`), all in one user-data
   folder. Removing an account deletes its profile, which also closes any view still on it.
+- **An account is never in the list twice** (CT-003). Who signed in is only known when the
+  account profile arrives, in `RefreshAccountInfoAsync`; if another row already has that
+  email, `Accounts.MergeDuplicate` says what the roster becomes and `AdoptSession` applies
+  it: the row that was already there keeps its id, name and history and takes over the new
+  profile, the row made for the sign-in goes, and the old profile is deleted. Asked only
+  when a row first learns its email, so signing a row back in never merges it.
 - **Sign-in** uses its own visible web view on the account's profile. The window polls the
   profile's cookies once a second and reports a `sessionKey` that differs from the one
   present when it opened. Fetches for that account wait while it is open.

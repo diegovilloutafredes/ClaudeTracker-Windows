@@ -168,9 +168,10 @@ public partial class SettingsWindow : Window
             }
 
             RefreshAccounts();
-            ErrorText.Text = viewModel.Error ?? "";
-            ErrorText.Foreground = Orange;
-            ErrorText.Visibility = viewModel.Error is null ? Visibility.Collapsed : Visibility.Visible;
+            // One line under the list: what the app just did on its own, else what is wrong.
+            ErrorText.Text = viewModel.Notice ?? viewModel.Error ?? "";
+            ErrorText.Foreground = viewModel.Notice is null ? Orange : Secondary;
+            ErrorText.Visibility = ErrorText.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
             AddAccountButton.Visibility = viewModel.Accounts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
             // How the numbers are shown only matters once there are numbers.

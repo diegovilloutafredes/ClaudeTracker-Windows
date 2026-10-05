@@ -263,6 +263,14 @@ public sealed record Account
     public string ProfileName => Accounts.ProfilePrefix + ProfileId.ToString("N");
 }
 
+/// <summary>
+/// What a roster becomes when a sign-in turns out to be an account it already had.
+/// </summary>
+/// <param name="Roster">The roster without the row that was added for the sign-in.</param>
+/// <param name="Kept">The row that was already there, now holding the new session's profile.</param>
+/// <param name="AbandonedProfile">The profile that row had before — the session it gave up — to be deleted.</param>
+public sealed record DuplicateMerge(IReadOnlyList<Account> Roster, Account Kept, string AbandonedProfile);
+
 public static class Accounts
 {
     public const string ProfilePrefix = "acct-";
@@ -279,6 +287,33 @@ public static class Accounts
         return existingProfileNames
             .Where(name => name.StartsWith(ProfilePrefix, StringComparison.OrdinalIgnoreCase) && !owned.Contains(name))
             .ToList();
+    }
+
+    /// <summary>
+    /// Finds out whether the row that just signed in is an account the roster already had, and
+    /// if so what the roster becomes. Null when it is not: nothing to do.
+    ///
+    /// Two rows are the same account when their email is the same, whatever its letter case —
+    /// which is all a sign-in is told apart by. The question is asked once per row, when its
+    /// email is first learned (<paramref name="email"/> comes from the account profile fetched
+    /// after sign-in); a row that already knew its email has merely been signed in again.
+    ///
+    /// The row that was already there wins. It keeps its id, and with it its name and its chart
+    /// history, and takes over the profile of the row that just signed in: the session made a
+    /// moment ago, certainly valid, where its own may have expired. The new row disappears.
+    /// </summary>
+    public static DuplicateMerge? MergeDuplicate(IReadOnlyList<Account> roster, Guid signedInId, string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return null;
+        if (roster.FirstOrDefault(a => a.Id == signedInId) is not { Email: null } signedIn) return null;
+        var existing = roster.FirstOrDefault(a =>
+            a.Id != signedInId && string.Equals(a.Email?.Trim(), email.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (existing is null) return null;
+        var kept = existing with { ProfileId = signedIn.ProfileId };
+        return new DuplicateMerge(
+            roster.Where(a => a.Id != signedInId).Select(a => a.Id == existing.Id ? kept : a).ToList(),
+            kept,
+            existing.ProfileName);
     }
 
     /// <summary>The saved active account, or null when none is saved or the saved value is not an id.</summary>
