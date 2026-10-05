@@ -7,6 +7,8 @@
   "Launch when I sign in to Windows": { "es": "Iniciar al entrar a Windows" },
   "Setup stopped before installing (code %d)": { "es": "La instalación se detuvo antes de empezar (código %d)" },
   "Couldn't download the update": { "es": "No se pudo descargar la actualización" },
+  "Not enough free disk space to install the update": { "es": "No hay espacio libre suficiente en el disco para instalar la actualización" },
+  "Windows didn't let Claude Tracker change that.": { "es": "Windows no permitió que Claude Tracker cambiara eso." },
   "Opens Claude in a sign-in window.": { "es": "Abre Claude en una ventana de inicio de sesión." },
   "Resets in %@": { "es": "Se reinicia en %@" },
   "%d hr, %d min": { "es": "%d h, %d min" },

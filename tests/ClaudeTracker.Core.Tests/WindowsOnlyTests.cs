@@ -122,6 +122,53 @@ public class WindowsOnlyTests
     }
 
     [Fact]
+    public void ASaveThatFailsIsSaidNotThrownAndTriedAgain()
+    {
+        var directory = Directory.CreateTempSubdirectory("claudetracker-tests-").FullName;
+        try
+        {
+            var path = Path.Combine(directory, "settings.json");
+            var errors = new List<string>();
+            var store = new SettingsStore(path, errors.Add);
+            Assert.True(store.Set(PrefKey.PopupScale, 1.25));
+
+            // Read-only, as a backup or sync tool can leave it: it reads, and cannot be replaced.
+            File.SetAttributes(path, FileAttributes.ReadOnly);
+            try
+            {
+                // Not thrown: a preference is set in the middle of starting up, and thrown
+                // from there this once stopped the app before its accounts were loaded.
+                Assert.False(store.Set(PrefKey.ShowPace, false));
+                Assert.Equal(false, store.GetBool(PrefKey.ShowPace));
+                Assert.Single(errors);
+                Assert.Null(new SettingsStore(path).GetBool(PrefKey.ShowPace));
+            }
+            finally
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+            }
+
+            // The same value again is no change, and is saved all the same: the file never got it.
+            Assert.True(store.Set(PrefKey.ShowPace, false));
+            var saved = new SettingsStore(path);
+            Assert.Equal(false, saved.GetBool(PrefKey.ShowPace));
+            Assert.Equal(1.25, saved.GetDouble(PrefKey.PopupScale));
+            // And a store that could not read its file never claims to have saved.
+            SettingsStore locked;
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                locked = new SettingsStore(path);
+            }
+            Assert.False(locked.Set(PrefKey.ShowPace, true));
+            Assert.False(locked.Set(PrefKey.ShowPace, true));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CorruptSettingsArePreservedEvenWithNoLoggerAttached()
     {
         // The copy once sat inside the log call, so it never ran when nothing was listening.

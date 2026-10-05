@@ -51,7 +51,11 @@ public static class PrefKey
     public const string LaunchAtLogin = "launchAtLogin";
     public const string LastNotifiedUpdateVersion = "lastNotifiedUpdateVersion";
     public const string UpdateCheckInterval = "updateCheckInterval";
-    /// <summary>The release whose install last failed, and how many times in a row (auto-install retry cap).</summary>
+    /// <summary>
+    /// The release whose automatic install was last set off, and how many times (the cap on
+    /// automatic installs). The names are the Mac app's, which counts an install when it
+    /// fails; here it is counted when it starts (<c>UpdateService</c>).
+    /// </summary>
     public const string FailedInstallVersion = "failedInstallVersion";
     public const string FailedInstallCount = "failedInstallCount";
     public const string ActiveAccountId = "activeAccountID";
@@ -112,12 +116,20 @@ internal static class StorageFile
 /// Values are booleans, numbers, or strings. A file that fails to parse is preserved beside
 /// itself as <c>.corrupt</c> before the first save can overwrite it; a file that cannot be read
 /// makes the store run on defaults without ever saving (<see cref="IsReadOnly"/>).
+///
+/// A save that fails is logged and nothing more: the value stands for this run and is lost
+/// at the next. A preference is set from everywhere — in the middle of starting up, inside a
+/// poll — and none of those can do anything about a file that is read-only or held by a
+/// backup tool. Thrown, the failure once stopped startup before the accounts were loaded.
 /// </summary>
 public sealed class SettingsStore
 {
     private readonly string path;
+    private readonly Action<string>? logError;
     private readonly Dictionary<string, object> values = new(StringComparer.Ordinal);
     private readonly Lock gate = new();
+    /// <summary>True while the file does not hold what is in memory: the last save failed, and the next call tries again.</summary>
+    private bool unsaved;
 
     /// <summary>True when the settings file exists but could not be read: nothing is saved, so it stays as it is.</summary>
     public bool IsReadOnly { get; }
@@ -125,6 +137,7 @@ public sealed class SettingsStore
     public SettingsStore(string path, Action<string>? logError = null)
     {
         this.path = path;
+        this.logError = logError;
         if (!File.Exists(path)) return;
         byte[] bytes;
         try
@@ -170,35 +183,45 @@ public sealed class SettingsStore
 
     public string? GetString(string key) { lock (gate) return values.TryGetValue(key, out var v) ? v as string : null; }
 
-    public void Set(string key, bool value) => Store(key, value);
+    /// <summary>
+    /// Sets a value and saves. True when the file now holds it; false when it stands for this
+    /// run only — the store is <see cref="IsReadOnly"/>, or the save failed. Most callers have
+    /// no use for the answer; one that is about to act on the value being remembered has.
+    /// </summary>
+    public bool Set(string key, bool value) => Store(key, value);
 
-    public void Set(string key, double value) => Store(key, value);
+    /// <inheritdoc cref="Set(string, bool)"/>
+    public bool Set(string key, double value) => Store(key, value);
 
-    public void Set(string key, int value) => Store(key, (double)value);
+    /// <inheritdoc cref="Set(string, bool)"/>
+    public bool Set(string key, int value) => Store(key, (double)value);
 
-    public void Set(string key, string value) => Store(key, value);
+    /// <inheritdoc cref="Set(string, bool)"/>
+    public bool Set(string key, string value) => Store(key, value);
 
     public void Remove(string key)
     {
         lock (gate)
         {
-            if (values.Remove(key)) Save();
+            if (values.Remove(key) || unsaved) Save();
         }
     }
 
-    private void Store(string key, object value)
+    private bool Store(string key, object value)
     {
         lock (gate)
         {
-            if (values.TryGetValue(key, out var existing) && existing.Equals(value)) return;
+            var same = values.TryGetValue(key, out var existing) && existing.Equals(value);
             values[key] = value;
-            Save();
+            // Nothing to write when nothing changed, unless the last save failed.
+            if (same && !unsaved) return !IsReadOnly;
+            return Save();
         }
     }
 
-    private void Save()
+    private bool Save()
     {
-        if (IsReadOnly) return;
+        if (IsReadOnly) return false;
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
         {
@@ -214,7 +237,18 @@ public sealed class SettingsStore
             }
             writer.WriteEndObject();
         }
-        AtomicFile.WriteAllBytes(path, stream.ToArray());
+        try
+        {
+            AtomicFile.WriteAllBytes(path, stream.ToArray());
+            unsaved = false;
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            unsaved = true;
+            logError?.Invoke($"settings could not be saved — kept for this run only: {e.Message}");
+            return false;
+        }
     }
 }
 

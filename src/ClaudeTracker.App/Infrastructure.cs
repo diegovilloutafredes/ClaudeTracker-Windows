@@ -51,33 +51,39 @@ internal static class LoginItemStore
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string NotesKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
-    /// <summary>The entry's command, or null without an entry.</summary>
-    public static string? Registered() => Try(() =>
+    /// <summary>
+    /// The entry as Windows has it: its command (null without an entry), and whether Windows
+    /// will run it — not once the user switched it off elsewhere. False when the registry
+    /// would not say: then nothing is known, and "no entry" must not be read into it.
+    /// </summary>
+    public static bool TryRead(out string? command, out bool allowed)
     {
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return key?.GetValue(LoginItem.EntryName) as string;
-    });
+        string? found = null;
+        var runs = true;
+        var read = Try(() =>
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(RunKey)) found = key?.GetValue(LoginItem.EntryName) as string;
+            using (var key = Registry.CurrentUser.OpenSubKey(NotesKey)) runs = LoginItem.IsAllowed(key?.GetValue(LoginItem.EntryName) as byte[] ?? []);
+        });
+        (command, allowed) = (found, runs);
+        return read;
+    }
 
-    /// <summary>Whether Windows will run the entry: false once the user switched it off elsewhere.</summary>
-    public static bool Allowed() => Try(() =>
-    {
-        using var key = Registry.CurrentUser.OpenSubKey(NotesKey);
-        return LoginItem.IsAllowed(key?.GetValue(LoginItem.EntryName) as byte[] ?? []);
-    }, otherwise: true);
-
-    /// <summary>Writes the entry. Switched on from the app, so a note that it was switched off elsewhere goes too.</summary>
-    public static void Register(string command) => Try(() =>
+    /// <summary>
+    /// Writes the entry. Switched on from the app, so a note that it was switched off
+    /// elsewhere goes too. False when Windows, or software guarding what starts with it, refused.
+    /// </summary>
+    public static bool Register(string command) => Try(() =>
     {
         using (var key = Registry.CurrentUser.CreateSubKey(RunKey)) key.SetValue(LoginItem.EntryName, command, RegistryValueKind.String);
         Forget(NotesKey);
-        return true;
     });
 
-    public static void Remove() => Try(() =>
+    /// <summary>Takes the entry away. False when that was refused.</summary>
+    public static bool Remove() => Try(() =>
     {
         Forget(RunKey);
         Forget(NotesKey);
-        return true;
     });
 
     private static void Forget(string path)
@@ -86,16 +92,17 @@ internal static class LoginItemStore
         key?.DeleteValue(LoginItem.EntryName, throwOnMissingValue: false);
     }
 
-    private static T? Try<T>(Func<T> registry, T? otherwise = default)
+    private static bool Try(Action registry)
     {
         try
         {
-            return registry();
+            registry();
+            return true;
         }
         catch (Exception e) when (e is System.Security.SecurityException or IOException or UnauthorizedAccessException)
         {
             AppLogger.Shared.Error($"launch at sign-in: the registry refused ({e.Message})");
-            return otherwise;
+            return false;
         }
     }
 }

@@ -481,9 +481,14 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         set
         {
             if (!CanLaunchAtLogin || value == LaunchAtLogin) return;
+            if (!(value ? LoginItemStore.Register(LoginItem.Command(AppPaths.Executable)) : LoginItemStore.Remove()))
+            {
+                // Software that guards what starts with Windows can refuse. Nothing is saved
+                // and nothing is claimed: the switch goes back to what is true, with a word.
+                ShowNotice(L.T("Windows didn't let Claude Tracker change that."));
+                return;
+            }
             settings.Set(PrefKey.LaunchAtLogin, value);
-            if (value) LoginItemStore.Register(LoginItem.Command(AppPaths.Executable));
-            else LoginItemStore.Remove();
             AppLogger.Shared.Info($"launch at sign-in {(value ? "registered" : "removed")}");
             Notify();
         }
@@ -496,15 +501,21 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     /// </summary>
     public void SyncLaunchAtLogin()
     {
-        var registered = LoginItemStore.Registered();
+        // Settings that could not be read are not settings that were never made. Read as a
+        // first run, they put back an entry the user had switched off; and at the start after,
+        // the entry being there read as the user having switched it on again.
+        if (settings.IsReadOnly) return;
+        // Nor is a registry that would not answer a registry without the entry.
+        if (!LoginItemStore.TryRead(out var registered, out var allowed)) return;
         var wanted = LoginItem.Command(AppPaths.Executable);
-        var step = LoginItem.AtStart(CanLaunchAtLogin, settings.GetBool(PrefKey.LaunchAtLogin), registered, LoginItemStore.Allowed(), wanted,
+        var step = LoginItem.AtStart(CanLaunchAtLogin, settings.GetBool(PrefKey.LaunchAtLogin), registered, allowed, wanted,
                                      LoginItem.ExecutablePath(registered) is { } path && System.IO.File.Exists(path), JustInstalled);
         // Said once, by the setup, about this start only.
         JustInstalled = false;
         if (step.Register)
         {
-            LoginItemStore.Register(wanted);
+            // Refused: the preference is left as it was, not set to something that is not so.
+            if (!LoginItemStore.Register(wanted)) return;
             AppLogger.Shared.Info("launch at sign-in registered");
         }
         if (step.Preference is not { } preference) return;
@@ -522,7 +533,9 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     public void Start()
     {
         Updater.Changed += Notify;
-        SyncLaunchAtLogin();
+        // The roster first, before anything that writes: whatever stops this method half way
+        // must not leave the app showing "Not signed in" over accounts that are intact on
+        // disk — "Add a Claude account" would then save a new roster over them.
         var loaded = accountStore.LoadAccounts().ToList();
         if (accountStore.RosterIsUnreadable)
         {
@@ -537,9 +550,10 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         // Reclaim placeholders abandoned by a quit or crash while the sign-in window was open:
         // their profiles hold no session — a surviving row could only fail.
         var abandoned = loaded.Where(a => a.Pending == true).ToList();
+        loaded.RemoveAll(a => a.Pending == true);
+        Accounts = loaded;
         if (abandoned.Count > 0)
         {
-            loaded.RemoveAll(a => a.Pending == true);
             accountStore.SaveAccounts(loaded);
             foreach (var account in abandoned)
             {
@@ -548,7 +562,6 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
                 AppLogger.Shared.Info($"reclaimed abandoned pending account {Short(account.Id)}");
             }
         }
-        Accounts = loaded;
         SweepOrphanedProfiles();
         foreach (var account in Accounts)
         {
@@ -567,6 +580,7 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
             // selection so the popover offers sign-in instead of an endless "Loading…".
             Core.Accounts.SaveActiveId(settings, null);
         }
+        SyncLaunchAtLogin();
         Notify();
     }
 
