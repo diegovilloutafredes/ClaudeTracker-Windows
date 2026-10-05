@@ -151,7 +151,8 @@ public partial class PopoverWindow : Window
         foreach (var account in viewModel.Accounts)
         {
             // A menu reads "_" as the mark of a shortcut letter; doubled, it is an underscore.
-            var item = new MenuItem { Header = account.Label.Replace("_", "__"), IsChecked = account.Id == viewModel.ActiveAccountId };
+            // Checkable, or the tick is not drawn at all — and a screen reader is told nothing.
+            var item = new MenuItem { Header = account.Label.Replace("_", "__"), IsCheckable = true, IsChecked = account.Id == viewModel.ActiveAccountId };
             item.Click += (_, _) => viewModel.SwitchAccount(account.Id);
             menu.Items.Add(item);
         }
