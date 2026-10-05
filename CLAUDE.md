@@ -125,7 +125,9 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
   Windows keeps the first tooltip an icon is ever given: its Settings list the icon under
   it for good, and a screen reader is read the one it was added with in front of the
   current one. Enter on the icon, from the keyboard, arrives as a double click, which
-  shows the popover.
+  shows the popover. So does a double click of the mouse, whose first click has opened
+  it and whose second press has closed it again: it ends open (meant, and not yet seen —
+  `shared/TESTING.md`).
 - **A date is written in the language of the sentence around it** (`TimeText.DisplayCulture`):
   Windows' regional format while that speaks the display language, else the display
   language's own.

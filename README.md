@@ -11,7 +11,7 @@ It is the Windows port of [ClaudeTracker for macOS](https://github.com/diegovill
 > charts, sign-in, several accounts, alerts, settings, a setup with updates — and its first
 > release has not been published. Until it is, build it from source (below).
 
-## What it will do
+## What it does
 
 The same things the macOS app does, shown the Windows way:
 
