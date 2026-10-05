@@ -16,13 +16,14 @@ session. Open source, MIT licensed.
 icon, popover with usage rows and pace, sign-in window, polling (spec CT-001, done) and a
 Settings window with several accounts (CT-002, done), one row per account (CT-003),
 alerts for resets and pace (CT-004, done), a setup with signed updates and launch at
-sign-in (CT-005, done) and the Charts tab (CT-006, done) — specs in the workspace's
-`shared/features/`. Nothing is released yet: the repo is not on GitHub. The app has been
-run signed in (2026-10-05, through Google with a passkey), from a build folder and
-installed by its setup: sign-in is detected, usage rows appear, the session survives a
-relaunch, an upgrade and an uninstall, and polling recovers by itself after the network
-drops. What is still untried is listed under known debt in the workspace's
-`shared/TESTING.md`; `shared/PARITY_MATRIX.md` is the honest list of what works.
+sign-in (CT-005, done), the Charts tab (CT-006, done), and a pass in Spanish and as a
+screen reader is handed it (CT-007, done) — specs in the workspace's `shared/features/`.
+Nothing is released yet: the repo is not on GitHub. The app has been run signed in
+(2026-10-05, through Google with a passkey), from a build folder and installed by its
+setup: sign-in is detected, usage rows appear, the session survives a relaunch, an upgrade
+and an uninstall, and polling recovers by itself after the network drops. What is still
+untried is listed under known debt in the workspace's `shared/TESTING.md`;
+`shared/PARITY_MATRIX.md` is the honest list of what works.
 
 ## Build & test
 
@@ -61,7 +62,7 @@ src/ClaudeTracker.App/                ← the app: WPF + WebView2, everything th
   ClaudeApiClient.cs                  ← hidden WebView2 per account; runs fetch() in a claude.ai page
   UpdateService.cs                    ← finds a newer release, downloads its setup, has it judged, runs it
   TrayIcon.cs                         ← the tray icon, with the percentage drawn into it
-  PopoverWindow.xaml(.cs)             ← the popover; rebuilt from the view model on every change
+  PopoverWindow.xaml(.cs)             ← the popover; brought up to date from the view model on every change
   Charts.cs                           ← the Charts tab, the chart element it draws, the segmented picker
   ViewCache.cs                        ← keeps a view's elements from one render to the next
   LoginWindow.xaml(.cs)               ← claude.ai's login page; detects the new session cookie
@@ -90,23 +91,46 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
 - **One change event.** `UsageViewModel.Changed` fires after any state change; the tray
   icon and the popover redraw from the view model's current values. There are no bindings.
   Everything runs on the UI thread, where WebView2 has to live, so async code needs no locks.
-- **The Settings window is not rebuilt on a change, unlike the popover.** A poll lands
+- **The Settings window is not rebuilt on a change.** A poll lands
   every few seconds, and rebuilding would replace a slider under the hand dragging it and
   take the keyboard focus from a switch. Its Display controls are made once and only their
   values refreshed, under a flag (`refreshing`) that keeps the change handlers from writing
   the same value back; the account list is rebuilt only when what it shows has changed.
-- **The Charts tab is not rebuilt either: it is one element, brought up to date**
-  (`ChartsTab.Refresh`). Rebuilt like the usage rows, it closed its own content menu,
-  scrolled its list back to the top and took the keyboard from its range picker at every
-  poll. Its fixed parts are made once; what comes and goes with the data — sections, charts,
-  figures — is asked of a `ViewCache` by name, so the same name gives the same element and
-  a render only changes what it says. Whatever is set on a kept element must be set at
-  every render: it remembers the last one. `PopoverWindow.Render` leaves the tab where it
-  is when it is already what the body shows.
+- **The popover's elements are kept from one render to the next** (`ViewCache`). It is
+  brought up to date at every poll, every few seconds. Made of new elements each time, a
+  screen reader that was reading a row found itself at the top of the window again, the
+  Charts tab closed its own content menu and scrolled its list back, and whatever held the
+  keyboard lost it. Fixed parts are in the XAML or made once (`ChartsTab`, `Segmented`);
+  what comes and goes with the data — rows, sections, charts — is asked of a `ViewCache`
+  by name, so the same name gives the same element and a render only changes what it says.
+  Whatever is set on a kept element must be set at every render: it remembers the last one.
+  `ViewCache.SetChildren` leaves a panel alone when it already holds what it should.
+- **A screen reader is given things in the order they are put into the tree, one element
+  per thing.** A usage row is one element (`UsageRow`) that reads "5-Hour Window, 31%,
+  Resets in 22 min · 15:50", as the Mac's combined row does; a chart is one picture that
+  says its figures in whole words. Texts that only repeat that for the eye — a chart's
+  heading and its row of "pk" and "avg", the "30m" beside a slider, a symbol — are
+  `QuietText`, which a screen reader is not shown. Never put a row together from the right
+  edge inwards (a `DockPanel` with the right-hand part added first): it looks the same and
+  reads backwards — the percentage before its window, "Sign out & remove" before the
+  account's name — and the Tab key follows the same order. Section titles carry a heading
+  level; a slider says its value in words in its help text.
+  `.claude/skills/run-app/reader.ps1` shows what is handed over; run it after any change
+  to a window.
 - **The charts are drawn by the app** (`MiniChart.OnRender`): no charting library. What
   can be wrong without looking wrong is in `ChartLayout`, pure and tested — the forecast's
   frame, "expected" at a moment, the pace scale, and the time axis's marks, which are
   counted on the wall clock so they stay on round times when the clocks change.
+- **The tray icon is first shown under the app's name alone** (`TrayIcon`'s constructor).
+  Windows keeps the first tooltip an icon is ever given: its Settings list the icon under
+  it for good, and a screen reader is read the one it was added with in front of the
+  current one. Enter on the icon, from the keyboard, arrives as a double click, which
+  shows the popover.
+- **A date is written in the language of the sentence around it** (`TimeText.DisplayCulture`):
+  Windows' regional format while that speaks the display language, else the display
+  language's own.
+- **Settings moves up when it grows past the bottom of the screen** (`KeepOnScreen`): it is
+  as tall as what it shows, and switching pace alerts on adds six rows underneath.
 - **A symbol is an element of its own inside its button** (`Symbols.Text`), never the
   button's font. A menu takes the font of the button it hangs from, and the symbol font
   draws every letter as an empty box: the chart content menu showed seven boxes with ticks
@@ -230,6 +254,7 @@ what a user gets; `.claude/skills/run-app` says what to expect from each.
 | `--background` | Starts without showing the popover. Not for development: the sign-in entry passes it, and so does an update |
 | `--quit` | Closes the copy that is running and starts nothing. Not for development either: the setup and the uninstaller use it |
 | `--just-installed` | Said by the setup to the app it starts after a first install (not an upgrade): a sign-in entry the uninstaller took away is put back if the settings say on |
+| `--language <tag>` | Runs this copy in another language without changing Windows: `es` for the words, `es-CL` for the regional format too. Windows' own words inside the app (a text field's menu) stay as Windows has them |
 | `--update-feed <address>` | Reads the releases from that address instead of GitHub. What it serves is trusted no more than GitHub: a setup still needs a signature the embedded key verifies |
 | `--full-host-page` | Hosts the hidden browser on the full claude.ai page from the start |
 | `--challenge-once` | Treats the first fetch as challenged by Cloudflare |

@@ -1,6 +1,6 @@
 ---
 name: run-app
-description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, hover and click with the real pointer where that is not enough, run its setup and uninstaller as a person would, test launch at sign-in and updates without a release, cut it off from the network to test recovery, measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
+description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, hover and click with the real pointer where that is not enough, read it as a screen reader is handed it, walk every surface in another language, reach the tray icon from the keyboard, run its setup and uninstaller as a person would, test launch at sign-in and updates without a release, cut it off from the network to test recovery, measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
 ---
 
 # Running and checking the Windows app
@@ -91,6 +91,38 @@ Two things about windows that ask a question (Settings' rename and remove):
   (`WindowPattern.Close()`), which is Cancel. Never press "Remove" on the user's own
   account: it deletes the session. Removal is tested on a second, throwaway sign-in.
 
+## What a screen reader is handed, and every surface in another language
+
+```powershell
+$skill = ".claude\skills\run-app"
+powershell -NoProfile -ExecutionPolicy Bypass -File $skill\reader.ps1 -Popover -WatchSeconds 25   # the popover (and any other window showing)
+powershell -NoProfile -ExecutionPolicy Bypass -File $skill\walk.ps1 -Language es-CL -Tag es       # every surface, pictured, in Spanish
+& "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe" run --project $skill\listen -- 12            # headings, and what is announced in the next 12 s
+powershell -NoProfile -ExecutionPolicy Bypass -File $skill\tray.ps1 -Activate                    # the tray icon, from the keyboard
+```
+
+- `reader.ps1` lists each window's elements in the order a screen reader meets them, with
+  what each says about itself, then what is wrong: something that can be pressed and has no
+  name, a symbol in a name, a slider that does not say its value in words. With
+  `-WatchSeconds` it reads twice and says which elements were replaced meanwhile — it must
+  say none: a screen reader on a replaced element is thrown back to the top of the window.
+  A button's caption listed under the button is the button, and is left out.
+- `listen` is a small program, not a script: headings and announcements are only visible
+  through UI Automation's COM face. Press "Test" in Settings while it listens and it prints
+  the toast's announcement.
+- `tray.ps1` types into the user's session (Win+B, arrows, Enter): it runs only while they
+  are away, and presses Enter on two things only, each checked by name first — the arrow for
+  hidden icons, and the app's own icon. Its picture is of the icon alone.
+- `walk.ps1` finds controls by the names they have in the code (their automation ids), so
+  it works in any language; with `-Language` it restarts the app in that language first.
+  **Look at its pictures**: a text cut off, or a window grown off the screen, shows nowhere
+  else. It never opens the removal question, and puts back the switches it flips.
+- Prefer automation ids to names in your own scripts too: `SettingsLink`, `QuitLink`,
+  `AddAccountButton`, `ResetTestButton`, `popover-tab-0`, `chart-range-2`, `ChartContent`,
+  and every `x:Name` in the XAML.
+- None of this is Narrator having been listened to. Do not switch Narrator on: it talks
+  aloud on the user's PC.
+
 ## What only the real pointer can do
 
 UI Automation cannot hover, and its "press" does not close a menu that stays open while its
@@ -101,7 +133,7 @@ back:
 ```powershell
 $pointer = ".claude\skills\run-app\pointer.ps1"
 powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Utilization" -Type Image -At 0.7                # rest on the first chart, 70 % across
-powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Chart content" -Action click -Picture menu      # open the charts' menu, picture it
+powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Id ChartContent -Action click -Picture menu             # open the charts' menu, picture it (by id: any language)
 powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Pace" -Type MenuItem -Action click -MinIdleSeconds 0   # tick an item; the menu stays
 powershell -NoProfile -ExecutionPolicy Bypass -File $pointer -Control "Claude Tracker" -Type Text -Action click -MinIdleSeconds 0   # a click on the title closes it
 ```

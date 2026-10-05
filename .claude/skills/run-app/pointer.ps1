@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory)] [string]$Control,
+    [string]$Control = "",
+    [string]$Id = "",
     [string]$Type = "",
     [string]$Window = "Claude Tracker",
     [ValidateSet("hover", "click")] [string]$Action = "hover",
@@ -17,6 +18,8 @@ param(
 #   -Control "Chart content" -Action click -Picture menu  open the charts' menu and picture it
 #   -Control "Pace" -Type MenuItem -Action click          tick an item of the menu that is open
 #   -Control "Claude Tracker" -Type Text -Action click    click the popover's title: closes a menu
+#   -Id ChartContent -Action click -Picture menu          the same button by the name it has in the code,
+#                                                         which is the same in every language
 #
 # It borrows the user's pointer, so it refuses to run while they are at the PC (-MinIdleSeconds;
 # its own moves count as input, so a second call needs a lower number) and puts the pointer
@@ -54,13 +57,16 @@ $mine = New-Object System.Windows.Automation.PropertyCondition ($AE::ProcessIdPr
 function Tops { @($AE::RootElement.FindAll($Tree::Children, $mine) | Where-Object { $_.Current.BoundingRectangle.Width -gt 1 }) }
 function Kind($Element) { $Element.Current.ControlType.ProgrammaticName -replace 'ControlType\.', '' }
 
+if (-not $Control -and -not $Id) { "say which element: -Control <its name> or -Id <its automation id>"; exit 1 }
 $top = Tops | Where-Object { $_.Current.Name -like $Window } | Select-Object -First 1
 if (-not $top) { "no window like '$Window'"; exit 1 }
 $target = $null
 foreach ($e in $top.FindAll($Tree::Subtree, [System.Windows.Automation.Condition]::TrueCondition)) {
-    if ($e.Current.Name -eq $Control -and (-not $Type -or (Kind $e) -eq $Type)) { $target = $e; break }
+    $named = if ($Id) { $e.Current.AutomationId -eq $Id } else { $e.Current.Name -eq $Control }
+    if ($named -and (-not $Type -or (Kind $e) -eq $Type)) { $target = $e; break }
 }
-if (-not $target) { "no '$Control' $Type in '$($top.Current.Name)'"; exit 1 }
+if (-not $target) { "no '$Control$Id' $Type in '$($top.Current.Name)'"; exit 1 }
+$Control = $target.Current.Name
 
 $old = New-Object AppPointer+POINT
 [void][AppPointer]::GetCursorPos([ref]$old)
