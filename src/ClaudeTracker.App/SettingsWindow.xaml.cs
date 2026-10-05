@@ -228,6 +228,9 @@ public partial class SettingsWindow : Window
 
     internal static void CloseCurrent() => current?.Close();
 
+    /// <summary>Draws the open window again, if there is one: light or dark changed, or the clock did.</summary>
+    internal static void RefreshCurrent() => current?.Refresh();
+
     // MARK: - Refreshing
 
     private Brush Primary => Gray(isDark ? (byte)0xFF : (byte)0x1B);

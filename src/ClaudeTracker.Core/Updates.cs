@@ -57,7 +57,10 @@ public static partial class Updates
     /// </summary>
     public const string SilentInstallArguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /AppArgs=--background";
 
-    /// <summary>Failed installs of one release that auto-install tolerates before it stops retrying.</summary>
+    /// <summary>
+    /// Installs of one release that auto-install sets off before it stops. On the Mac these
+    /// are counted as they fail; here as they start (<see cref="InstallAttempts"/>).
+    /// </summary>
     public const int MaxAutoInstallAttempts = 3;
 
     /// <summary>Seconds between "an update was found" and its install starting: time to switch auto-install off.</summary>
@@ -84,12 +87,38 @@ public static partial class Updates
     /// newer version than the copy that is running. The signature comes first — nothing a
     /// file says about itself counts until the file is known to be the maintainer's.
     /// </summary>
+    /// <param name="setupVersion">
+    /// Reads the version out of the file. Asked only once the signature has verified: until
+    /// then the file is a stranger's, and is not even to be parsed for what it says it is.
+    /// </param>
     public static SetupVerdict JudgeSetup(ReadOnlySpan<byte> setup, ReadOnlySpan<byte> signature, ReadOnlySpan<byte> publicKey,
-                                          string setupVersion, string currentVersion)
+                                          Func<string> setupVersion, string currentVersion)
     {
         if (!VerifyUpdateSignature(setup, signature, publicKey)) return SetupVerdict.SignatureInvalid;
-        return IsNewerVersion(setupVersion, currentVersion) ? SetupVerdict.Run : SetupVerdict.NotNewer;
+        return IsNewerVersion(setupVersion(), currentVersion) ? SetupVerdict.Run : SetupVerdict.NotNewer;
     }
+
+    /// <summary>
+    /// Free space the app wants on its own drive before it fetches an update: the download and
+    /// the installed app over again, with room to spare. A setup that runs out of room stops
+    /// after it has closed the app, and can leave it half replaced.
+    /// </summary>
+    public const long FreeSpaceToInstallBytes = 300L * 1024 * 1024;
+
+    /// <summary>The largest setup the app will download: ten times today's. A list that offers more is not this app's.</summary>
+    public const long LargestSetupBytes = 600L * 1024 * 1024;
+
+    /// <summary>
+    /// Seconds a download may go without a single byte arriving before it is given up. Not a
+    /// limit on the whole download: that would refuse a slow connection every time.
+    /// </summary>
+    public const int DownloadStallSeconds = 60;
+
+    /// <summary>
+    /// Seconds after a check on waking that could not reach the list before it is made once
+    /// more: Windows says the PC is back before the network is.
+    /// </summary>
+    public const int WakeRetrySeconds = 60;
 
     /// <summary>
     /// Whether an address from a release may be handed to Windows to open. Windows opens
@@ -186,8 +215,11 @@ public static partial class Updates
                 if (!latest.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) return null;
                 foreach (var asset in assets.EnumerateArray())
                 {
+                    // Only a web address is a file to fetch. Any other kind (a path, "file:")
+                    // counts as no file at all, and the release is offered as a link.
                     if (asset.ValueKind == JsonValueKind.Object && Lenient.String(asset, "name") == name
-                        && Uri.TryCreate(Lenient.String(asset, "browser_download_url"), UriKind.Absolute, out var url)) return url;
+                        && Uri.TryCreate(Lenient.String(asset, "browser_download_url"), UriKind.Absolute, out var url)
+                        && IsWebLink(url)) return url;
                 }
                 return null;
             }
@@ -233,6 +265,14 @@ public static partial class Updates
     /// </summary>
     public static int InstallFailureCount(string version, string failedVersion, int previousCount) =>
         (version == failedVersion ? previousCount : 0) + 1;
+
+    /// <summary>
+    /// How many installs of <paramref name="version"/> have been set off, from the saved
+    /// record. The record holds one release at a time: another release starts from nothing,
+    /// or three failures of one release would keep every later one from installing itself.
+    /// </summary>
+    public static int InstallAttempts(string version, string attemptedVersion, int attemptedCount) =>
+        version == attemptedVersion ? Math.Max(attemptedCount, 0) : 0;
 
     /// <summary>
     /// Whether the next update check should retry the install automatically. Past the cap a

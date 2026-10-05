@@ -929,19 +929,68 @@ public class WindowsOnlyTests
     {
         var file = Fixture.Bytes("signing-check.txt");
         var signature = Fixture.Bytes("signing-check.txt.sig");
-        Assert.Equal(SetupVerdict.Run, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, "1.3.0", "1.2.9"));
+        Assert.Equal(SetupVerdict.Run, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, () => "1.3.0", "1.2.9"));
         // Genuine, but the release's file is not the newer version it was offered as.
-        Assert.Equal(SetupVerdict.NotNewer, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, "1.2.9", "1.2.9"));
-        Assert.Equal(SetupVerdict.NotNewer, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, "1.2.0", "1.2.9"));
+        Assert.Equal(SetupVerdict.NotNewer, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, () => "1.2.9", "1.2.9"));
+        Assert.Equal(SetupVerdict.NotNewer, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, () => "1.2.0", "1.2.9"));
 
-        // One byte off, a signature of something else, no signature: never run, whatever version it claims.
+        // One byte off, a signature of something else, no signature: never run, whatever
+        // version it claims — and never asked what version it claims. Reading that out of a
+        // file hands it to Windows to take apart, which is not for a file nobody vouches for.
+        var asked = 0;
+        string Claimed()
+        {
+            asked++;
+            return "9.9.9";
+        }
         var tampered = (byte[])file.Clone();
         tampered[0] ^= 1;
-        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(tampered, signature, Updates.SigningPublicKey, "9.9.9", "1.2.9"));
-        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, new byte[64], Updates.SigningPublicKey, "9.9.9", "1.2.9"));
-        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, [], Updates.SigningPublicKey, "9.9.9", "1.2.9"));
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(tampered, signature, Updates.SigningPublicKey, Claimed, "1.2.9"));
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, new byte[64], Updates.SigningPublicKey, Claimed, "1.2.9"));
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, [], Updates.SigningPublicKey, Claimed, "1.2.9"));
         // And a key that is not the embedded one does not vouch for the file either.
-        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, signature, new byte[32], "9.9.9", "1.2.9"));
+        Assert.Equal(SetupVerdict.SignatureInvalid, Updates.JudgeSetup(file, signature, new byte[32], Claimed, "1.2.9"));
+        Assert.Equal(0, asked);
+        Assert.Equal(SetupVerdict.Run, Updates.JudgeSetup(file, signature, Updates.SigningPublicKey, Claimed, "1.2.9"));
+        Assert.Equal(1, asked);
+    }
+
+    [Theory]
+    // what the list gives as the setup's address -> whether the app will fetch it
+    [InlineData("https://github.com/diegovilloutafredes/ClaudeTracker-Windows/releases/download/v9.0.0/ClaudeTracker-Setup.exe", true)]
+    [InlineData("http://127.0.0.1:38920/ClaudeTracker-Setup.exe", true)]
+    // Anything else is no file at all: the release is offered as a page to open, and
+    // nothing is handed to the downloader that it would choke on or read off this PC.
+    [InlineData("file:///C:/Windows/System32/calc.exe", false)]
+    [InlineData("ftp://example.com/ClaudeTracker-Setup.exe", false)]
+    [InlineData("C:\\Windows\\System32\\calc.exe", false)]
+    public void OnlyAWebAddressIsFetchedAsTheSetup(string address, bool fetched)
+    {
+        var json = $$"""
+            [{"tag_name":"v9.0.0","html_url":"https://example.com/release","published_at":"2026-10-01T00:00:00Z","assets":[
+              {"name":"ClaudeTracker-Setup.exe","browser_download_url":{{System.Text.Json.JsonSerializer.Serialize(address)}}},
+              {"name":"ClaudeTracker-Setup.exe.sig","browser_download_url":"https://example.com/ClaudeTracker-Setup.exe.sig"}]}]
+            """;
+        var (update, _) = Updates.ParseGitHubReleases(json, "1.0.0");
+        Assert.NotNull(update);
+        Assert.Equal(fetched, update!.DownloadUrl is not null);
+        Assert.Equal(fetched, update.SignatureUrl is not null);
+    }
+
+    [Fact]
+    public void AutomaticInstallsAreCountedPerReleaseAndStopAtThree()
+    {
+        // Nothing saved, or what is saved is about another release: this one starts from nothing.
+        Assert.Equal(0, Updates.InstallAttempts("1.3.0", "", 0));
+        Assert.Equal(0, Updates.InstallAttempts("1.3.0", "1.2.0", 3));
+        Assert.Equal(2, Updates.InstallAttempts("1.3.0", "1.3.0", 2));
+        Assert.Equal(0, Updates.InstallAttempts("1.3.0", "1.3.0", -4));
+
+        // A setup that closes the app and then stops is started again with the app, three
+        // times in all — and three failures of one release do not hold back the next.
+        Assert.True(Updates.ShouldRetryAutoInstall(Updates.InstallAttempts("1.3.0", "1.3.0", 2)));
+        Assert.False(Updates.ShouldRetryAutoInstall(Updates.InstallAttempts("1.3.0", "1.3.0", 3)));
+        Assert.True(Updates.ShouldRetryAutoInstall(Updates.InstallAttempts("1.4.0", "1.3.0", 3)));
     }
 
     [Theory]

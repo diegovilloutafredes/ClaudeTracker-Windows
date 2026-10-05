@@ -49,8 +49,9 @@ public partial class App : Application
         // One instance per user session: a second copy would poll the same accounts and fight
         // over the same browser profiles. It asks the running copy to show itself instead.
         instanceMutex = new Mutex(initiallyOwned: true, @"Local\ClaudeTracker.SingleInstance", out var isFirstInstance);
-        // "--quit" is how the setup and the uninstaller close the app before they touch its
-        // files: the copy started with it tells the running one to quit, and starts nothing.
+        // "--quit" closes the running app: the copy started with it raises the running one's
+        // quit signal, and starts nothing. The setup and the uninstaller raise that signal
+        // themselves before they touch the app's files, and fall back on this.
         var quit = e.Args.Contains("--quit");
         if (!isFirstInstance || quit)
         {
@@ -69,7 +70,7 @@ public partial class App : Application
         quitWait = ThreadPool.RegisterWaitForSingleObject(
             quitSignal, (_, _) => Dispatcher.BeginInvoke(() =>
             {
-                AppLogger.Shared.Info("asked to quit by another copy (--quit): a setup or the uninstaller is about to replace this one");
+                AppLogger.Shared.Info("asked to quit through the quit signal: a setup or the uninstaller is about to replace this copy");
                 Shutdown();
             }), null, Timeout.Infinite, executeOnlyOnce: true);
 
@@ -117,6 +118,8 @@ public partial class App : Application
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         // Back from sleep: a release may have come out meanwhile.
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        // The clock was set, or the time zone changed: every time on screen is read from it.
+        SystemEvents.TimeChanged += OnTimeChanged;
 
         // Staleness and "Resets in …" depend on the clock, not only on new data.
         clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
@@ -192,8 +195,17 @@ public partial class App : Application
     /// <summary>Raises a signal of the running copy, if there is one.</summary>
     private static void Signal(string name)
     {
-        if (!EventWaitHandle.TryOpenExisting(name, out var signal)) return;
-        using (signal) signal.Set();
+        try
+        {
+            if (!EventWaitHandle.TryOpenExisting(name, out var signal)) return;
+            using (signal) signal.Set();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // The running copy was started as an administrator and this one was not: Windows
+            // lets this one find the signal and not raise it. This runs before anything is
+            // there to catch a failure, so uncaught it ended the second copy as a crash.
+        }
     }
 
     /// <summary>The argument that follows a switch on the command line, if both are there.</summary>
@@ -205,15 +217,46 @@ public partial class App : Application
 
     private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
     {
-        if (e.Mode == PowerModes.Resume) Dispatcher.BeginInvoke(() => viewModel?.Updater.CheckForUpdates());
-    }
-
-    private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e) =>
+        if (e.Mode != PowerModes.Resume) return;
         Dispatcher.BeginInvoke(() =>
         {
-            RefreshTray();
-            if (popover?.IsVisible == true) popover.Render();
+            AppLogger.Shared.Info("back from sleep: checking for updates");
+            // A laptop that slept may have travelled.
+            ReadTimeZoneAgain();
+            viewModel?.Updater.CheckAfterWake();
         });
+    }
+
+    private void OnTimeChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(ReadTimeZoneAgain);
+
+    /// <summary>
+    /// .NET reads the time zone once and keeps it for as long as the process lives. Without
+    /// this a PC that changed zone showed every reset time, chart axis and pointer time on
+    /// the old zone's clock until the app was restarted.
+    /// </summary>
+    private void ReadTimeZoneAgain()
+    {
+        var before = TimeZoneInfo.Local;
+        TimeZoneInfo.ClearCachedData();
+        var now = TimeZoneInfo.Local;
+        if (before.Id != now.Id || before.BaseUtcOffset != now.BaseUtcOffset)
+        {
+            AppLogger.Shared.Info($"time zone changed from {before.Id} to {now.Id}: times are shown on the new one");
+        }
+        Redraw();
+    }
+
+    private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e) => Dispatcher.BeginInvoke(Redraw);
+
+    /// <summary>Everything that is on screen, drawn again: its colours or its clock changed under it.</summary>
+    private void Redraw()
+    {
+        RefreshTray();
+        if (popover?.IsVisible == true) popover.Render();
+        // Settings redraws when the app has news or when it is clicked; with nobody signed
+        // in there is no news, and it kept the old theme's colours under the new one's controls.
+        SettingsWindow.RefreshCurrent();
+    }
 
     private void RefreshTray()
     {
@@ -225,6 +268,7 @@ public partial class App : Application
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.TimeChanged -= OnTimeChanged;
         clock?.Stop();
         LoginWindow.CloseCurrent();
         SettingsWindow.CloseCurrent();
@@ -235,11 +279,9 @@ public partial class App : Application
         showPopoverSignal?.Dispose();
         quitWait?.Unregister(null);
         quitSignal?.Dispose();
-        if (instanceMutex is not null)
-        {
-            instanceMutex.ReleaseMutex();
-            instanceMutex.Dispose();
-        }
+        // The mutex is not given up here: Windows takes it back when the process ends. The
+        // setup and the uninstaller read "no mutex" as "nothing of the app is in use any
+        // more", and released here it said so while the process still had its files open.
         base.OnExit(e);
     }
 }
