@@ -49,6 +49,9 @@ public partial class LoginWindow : Window
 
     internal static void CloseCurrent() => current?.Close();
 
+    /// <summary>Whether someone is in the middle of signing in.</summary>
+    internal static bool IsOpen => current is not null;
+
     private async Task StartAsync()
     {
         client.IsLoginInProgress = true;

@@ -26,7 +26,12 @@ if (Test-Path $pidFile) {
     Stop-Process -Id ([int](Get-Content $pidFile)) -Force -ErrorAction SilentlyContinue
     [System.IO.File]::Delete($pidFile)
 }
-if ($Kind -eq "stop") { "feed stopped"; return }
+if ($Kind -eq "stop") {
+    # The folder goes too: it holds a copy of a setup, some fifty megabytes of it.
+    if (Test-Path $feed) { [System.IO.Directory]::Delete($feed, $true) }
+    "feed stopped and removed"
+    return
+}
 
 New-Item -ItemType Directory -Force $feed | Out-Null
 $base = "http://127.0.0.1:$Port"

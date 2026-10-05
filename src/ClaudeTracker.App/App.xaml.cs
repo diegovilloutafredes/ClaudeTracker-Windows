@@ -135,6 +135,7 @@ public partial class App : Application
             AppLogger.Shared.Info($"updates are read from {feed} (--update-feed)");
         }
         viewModel.JustInstalled = e.Args.Contains("--just-installed");
+        viewModel.Updater.MustWait = () => LoginWindow.IsOpen;
         viewModel.Start();
         viewModel.Updater.Start();
         RefreshTray();

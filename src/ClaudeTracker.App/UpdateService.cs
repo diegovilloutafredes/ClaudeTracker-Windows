@@ -52,6 +52,13 @@ internal sealed class UpdateService(SettingsStore settings)
     public string? FailureMessage { get; private set; }
 
     /// <summary>
+    /// True while the app must not be closed under the user: a sign-in window is open. A setup
+    /// that is ready to run waits for it — it would close the window, and with it a sign-in
+    /// that is half done.
+    /// </summary>
+    public Func<bool> MustWait { get; set; } = () => false;
+
+    /// <summary>
     /// Development aid (<c>--update-feed</c>): another address to read the releases from. What
     /// it serves is trusted no more than GitHub is: a setup is still run only with a signature
     /// the embedded key verifies.
@@ -278,6 +285,11 @@ internal sealed class UpdateService(SettingsStore settings)
                 Phase = UpdatePhase.Installing;
                 Raise();
 
+                if (MustWait())
+                {
+                    AppLogger.Shared.Info($"update: v{version} is ready; waiting for the sign-in window to close before running its setup");
+                    while (MustWait()) await Task.Delay(TimeSpan.FromSeconds(2));
+                }
                 AppLogger.Shared.Info($"update: running the setup for v{version}; it closes this copy when it is ready to replace it");
                 using var process = Process.Start(new ProcessStartInfo(setup, Updates.SilentInstallArguments) { UseShellExecute = false })
                     ?? throw new UpdateException(L.F("Setup stopped before installing (code %d)", -1));
