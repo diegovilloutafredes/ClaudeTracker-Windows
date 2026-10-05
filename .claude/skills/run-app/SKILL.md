@@ -35,6 +35,12 @@ Start-Process $exe
   1024 KB, engine objects … KB, buffers … KB"). Expect the numbers to climb and, every 30
   minutes, to fall back when the app has the page collect its garbage. A floor that rises
   from one collection to the next would be memory that is really held.
+- `--reset-once` treats the second poll as a reset of the 5-Hour window: about ten seconds
+  after launch the log says "window reset detected: five_hour" and, with the default
+  settings, a toast shows for three seconds.
+- `--pace-alert-always` counts any pace as worth a warning. With "Notify when approaching
+  limit" and its toast on, one pace toast appears once the usage number has moved (a pace
+  needs two different readings), and only one however long it runs.
 - `--challenge-once` treats the first fetch as challenged by Cloudflare, which a test cannot
   provoke for real. Expect in the log: "Cloudflare challenged a fetch from the light host
   page — switching to the full claude.ai page", then usage within seconds, and a browser
@@ -53,6 +59,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\run-app\look.
 Reading the printed text is usually enough; read the PNG when layout or colour matters
 (one per window: `%TEMP%\claudetracker-<tag>-<window name>.png`). Window names: the popover is `Claude Tracker`, the sign-in
 window `Sign in to Claude` (translated when Windows' display language is Spanish).
+
+Toasts are windows of the app too, named by their title ("Claude Usage Reset",
+"Approaching usage limit"). They last seconds: to catch one, poll for it every half second
+rather than looking once. "Test" in Settings raises one on demand.
 
 ## Press a button
 
