@@ -9,10 +9,15 @@
     <AssemblyName>ClaudeTracker</AssemblyName>
     <RootNamespace>ClaudeTracker.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Drawn by scripts\generate-appicon.ps1; every window's title bar takes it from the exe. -->
+    <ApplicationIcon>Assets\ClaudeTracker.ico</ApplicationIcon>
     <!-- WPF0001: Application.ThemeMode (the Windows 11 look, light and dark) is still marked experimental.
          WFO0003: Windows Forms wants DPI awareness set through its own startup API, which a WPF
          app never calls; the manifest is how WPF gets per-monitor DPI. -->
     <NoWarn>$(NoWarn);WPF0001;WFO0003</NoWarn>
+    <!-- The two languages the app speaks. Without this a published copy carries Windows
+         Presentation Foundation's own texts in thirteen more. -->
+    <SatelliteResourceLanguages>en;es</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
