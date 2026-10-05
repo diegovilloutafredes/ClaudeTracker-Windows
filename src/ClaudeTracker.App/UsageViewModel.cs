@@ -64,6 +64,9 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     /// <summary>Raised after any state the views show has changed.</summary>
     public event Action? Changed;
 
+    /// <summary>The update flow. Its changes are this object's changes: one event redraws every view.</summary>
+    public UpdateService Updater { get; } = new(settings);
+
     public IReadOnlyList<Account> Accounts { get; private set; } = [];
 
     public Guid? ActiveAccountId { get; private set; }
@@ -453,6 +456,63 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         catch (Exception e) { AppLogger.Shared.Error($"a view failed to redraw: {e}"); }
     }
 
+    // MARK: - Launch at sign-in
+
+    /// <summary>
+    /// Set from <c>--just-installed</c>, which the setup passes to the app it starts after a
+    /// first install: an uninstall takes the sign-in entry away, and installing again must not
+    /// read that as the user having removed it.
+    /// </summary>
+    public bool JustInstalled { get; set; }
+
+    /// <summary>
+    /// Whether this copy may enter the user's sign-in at all: only one the setup installed.
+    /// For any other the switch is not shown.
+    /// </summary>
+    public bool CanLaunchAtLogin => AppPaths.IsInstalled;
+
+    /// <summary>
+    /// "Launch when I sign in to Windows". Switching it writes or removes the entry; reading
+    /// it never touches the registry — <see cref="SyncLaunchAtLogin"/> brings it in line.
+    /// </summary>
+    public bool LaunchAtLogin
+    {
+        get => CanLaunchAtLogin && settings.GetBool(PrefKey.LaunchAtLogin) == true;
+        set
+        {
+            if (!CanLaunchAtLogin || value == LaunchAtLogin) return;
+            settings.Set(PrefKey.LaunchAtLogin, value);
+            if (value) LoginItemStore.Register(LoginItem.Command(AppPaths.Executable));
+            else LoginItemStore.Remove();
+            AppLogger.Shared.Info($"launch at sign-in {(value ? "registered" : "removed")}");
+            Notify();
+        }
+    }
+
+    /// <summary>
+    /// Brings the switch in line with Windows, at start and whenever Settings opens. The first
+    /// run of an installed copy opts in; after that, an entry switched off in Task Manager or
+    /// removed by a cleanup tool turns the switch off, and the app does not put it back.
+    /// </summary>
+    public void SyncLaunchAtLogin()
+    {
+        var registered = LoginItemStore.Registered();
+        var wanted = LoginItem.Command(AppPaths.Executable);
+        var step = LoginItem.AtStart(CanLaunchAtLogin, settings.GetBool(PrefKey.LaunchAtLogin), registered, LoginItemStore.Allowed(), wanted,
+                                     LoginItem.ExecutablePath(registered) is { } path && System.IO.File.Exists(path), JustInstalled);
+        // Said once, by the setup, about this start only.
+        JustInstalled = false;
+        if (step.Register)
+        {
+            LoginItemStore.Register(wanted);
+            AppLogger.Shared.Info("launch at sign-in registered");
+        }
+        if (step.Preference is not { } preference) return;
+        if (!step.Register) AppLogger.Shared.Info($"launch at sign-in was switched {(preference ? "on" : "off")} outside the app: the switch follows");
+        settings.Set(PrefKey.LaunchAtLogin, preference);
+        Notify();
+    }
+
     // MARK: - Startup
 
     /// <summary>
@@ -461,6 +521,8 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     /// </summary>
     public void Start()
     {
+        Updater.Changed += Notify;
+        SyncLaunchAtLogin();
         var loaded = accountStore.LoadAccounts().ToList();
         if (accountStore.RosterIsUnreadable)
         {
@@ -529,6 +591,7 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
     /// <summary>Stops polling and closes the hidden browser. Called when the app quits.</summary>
     public void Shutdown()
     {
+        Updater.Stop();
         CancelInFlightWork();
         client?.TearDown();
         client = null;

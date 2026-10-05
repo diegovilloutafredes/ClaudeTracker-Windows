@@ -14,8 +14,10 @@ internal enum ToastKind
 {
     /// <summary>A window reset: good news, green.</summary>
     Reset,
-    /// <summary>A pace warning: amber.</summary>
+    /// <summary>A pace warning, or an update that could not be installed: amber.</summary>
     Pace,
+    /// <summary>An update was found: green.</summary>
+    Update,
 }
 
 /// <summary>
@@ -116,19 +118,17 @@ internal sealed class ToastWindow : Window
         Background = Gray(isDark ? (byte)0x2C : (byte)0xF9);
         announcement = title + ". " + message;
 
-        var symbol = new TextBlock
-        {
-            Text = kind == ToastKind.Reset ? "\uE73E" : "\uE7BA", // a tick, a warning triangle
-            FontFamily = Symbols.Family,
-            FontSize = 20,
-            Foreground = new SolidColorBrush(kind == ToastKind.Reset ? Color.FromRgb(0x2E, 0xA0, 0x43) : Color.FromRgb(0xD9, 0x82, 0x1E)),
-            Margin = new Thickness(0, 2, 12, 0),
-            VerticalAlignment = VerticalAlignment.Top,
-        };
+        // A tick, a warning triangle, an arrow into a tray.
+        var symbol = Symbols.Text(kind switch { ToastKind.Reset => "\uE73E", ToastKind.Update => "\uE896", _ => "\uE7BA" }, 20);
+        symbol.Foreground = new SolidColorBrush(kind == ToastKind.Pace ? Color.FromRgb(0xD9, 0x82, 0x1E) : Color.FromRgb(0x2E, 0xA0, 0x43));
+        symbol.Margin = new Thickness(0, 2, 12, 0);
+        symbol.VerticalAlignment = VerticalAlignment.Top;
 
+        var cross = Symbols.Text("\uE711", 10);
+        cross.Foreground = secondary;
         var close = new Button
         {
-            Content = new TextBlock { Text = "\uE711", FontFamily = Symbols.Family, FontSize = 10, Foreground = secondary },
+            Content = cross,
             Template = PlainButton(),
             Cursor = System.Windows.Input.Cursors.Hand,
             Focusable = false,

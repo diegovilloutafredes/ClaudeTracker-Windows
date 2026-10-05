@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using ClaudeTracker.Core;
 using Microsoft.Win32;
 
 namespace ClaudeTracker.App;
@@ -24,7 +25,79 @@ internal static class AppPaths
 
     public static string Logs { get; } = Path.Combine(Local, "Logs");
 
+    /// <summary>Where a downloaded update waits to be checked and run.</summary>
+    public static string Updates { get; } = Path.Combine(Local, "Updates");
+
     public static string Settings => Path.Combine(Data, "settings.json");
+
+    /// <summary>This copy's executable.</summary>
+    public static string Executable { get; } = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "ClaudeTracker.exe");
+
+    /// <summary>
+    /// Whether this copy was put where it is by the setup, which leaves its uninstaller beside
+    /// it. A copy run from a build folder was not: it neither enters the user's sign-in nor
+    /// replaces itself with an update.
+    /// </summary>
+    public static bool IsInstalled { get; } = File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
+}
+
+/// <summary>
+/// The app's sign-in entry as Windows keeps it: a value under the user's Run key, and beside
+/// it Windows' own note of an entry the user switched off in Task Manager or in Settings.
+/// What these mean, and what to do about them, is <see cref="LoginItem"/>'s.
+/// </summary>
+internal static class LoginItemStore
+{
+    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string NotesKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+    /// <summary>The entry's command, or null without an entry.</summary>
+    public static string? Registered() => Try(() =>
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(RunKey);
+        return key?.GetValue(LoginItem.EntryName) as string;
+    });
+
+    /// <summary>Whether Windows will run the entry: false once the user switched it off elsewhere.</summary>
+    public static bool Allowed() => Try(() =>
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(NotesKey);
+        return LoginItem.IsAllowed(key?.GetValue(LoginItem.EntryName) as byte[] ?? []);
+    }, otherwise: true);
+
+    /// <summary>Writes the entry. Switched on from the app, so a note that it was switched off elsewhere goes too.</summary>
+    public static void Register(string command) => Try(() =>
+    {
+        using (var key = Registry.CurrentUser.CreateSubKey(RunKey)) key.SetValue(LoginItem.EntryName, command, RegistryValueKind.String);
+        Forget(NotesKey);
+        return true;
+    });
+
+    public static void Remove() => Try(() =>
+    {
+        Forget(RunKey);
+        Forget(NotesKey);
+        return true;
+    });
+
+    private static void Forget(string path)
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(path, writable: true);
+        key?.DeleteValue(LoginItem.EntryName, throwOnMissingValue: false);
+    }
+
+    private static T? Try<T>(Func<T> registry, T? otherwise = default)
+    {
+        try
+        {
+            return registry();
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or IOException or UnauthorizedAccessException)
+        {
+            AppLogger.Shared.Error($"launch at sign-in: the registry refused ({e.Message})");
+            return otherwise;
+        }
+    }
 }
 
 /// <summary>
@@ -106,8 +179,22 @@ internal static class Symbols
     /// never on the button: a button's tooltip and its menu take the button's font, and this
     /// one draws every letter as an empty box.
     /// </summary>
-    public static System.Windows.Controls.TextBlock Text(string glyph, double size) =>
-        new() { Text = glyph, FontFamily = Family, FontSize = size };
+    public static SymbolText Text(string glyph, double size) => new() { Text = glyph, FontSize = size };
+}
+
+/// <summary>
+/// A text that is one symbol of <see cref="Symbols.Family"/>. It is decoration: a screen
+/// reader is not shown it at all (it would spell out a character that has no name), and what
+/// it stands beside — a button's name, a line of text — says what it means.
+/// </summary>
+internal sealed class SymbolText : System.Windows.Controls.TextBlock
+{
+    public SymbolText()
+    {
+        FontFamily = Symbols.Family;
+    }
+
+    protected override System.Windows.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => null!;
 }
 
 internal static class Native

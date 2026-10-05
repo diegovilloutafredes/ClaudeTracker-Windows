@@ -45,6 +45,8 @@ public partial class SettingsWindow : Window
         Title = L.F("Settings · v%@", version);
         AccountHeader.Text = L.T("Account");
         AddAccountButton.Content = L.T("Add account");
+        LaunchAtLoginSwitch.Content = L.T("Launch when I sign in to Windows");
+        AutoUpdateSwitch.Content = L.T("Auto-install updates");
         OpenLogsButton.Content = L.T("Open Logs");
         OpenLogsCaption.Text = L.T("Error and API logs for debugging");
         Disclaimer.Text = L.T("Unofficial tool — not affiliated with or endorsed by Anthropic. May break if Anthropic changes their web API.");
@@ -110,6 +112,10 @@ public partial class SettingsWindow : Window
         AutomationProperties.SetName(TimeFormatPicker, TimeFormatLabel.Text);
 
         AddAccountButton.Click += (_, _) => viewModel.OpenLoginForNewAccount();
+        CheckUpdatesButton.Click += (_, _) => viewModel.Updater.CheckForUpdates();
+        UpdateAction.Click += (_, _) => viewModel.Updater.Act();
+        BindSwitch(LaunchAtLoginSwitch, on => viewModel.LaunchAtLogin = on);
+        BindSwitch(AutoUpdateSwitch, on => viewModel.Updater.AutoUpdate = on);
         OpenLogsButton.Click += (_, _) => OpenLogs();
         TrayShowsPicker.SelectionChanged += (_, _) =>
         {
@@ -184,6 +190,8 @@ public partial class SettingsWindow : Window
     /// <summary>Opens the window, or brings the one already open to the front.</summary>
     internal static void Open(UsageViewModel viewModel)
     {
+        // Windows may have been told something about the sign-in entry since the app last looked.
+        viewModel.SyncLaunchAtLogin();
         if (current is null)
         {
             current = new SettingsWindow(viewModel);
@@ -221,11 +229,12 @@ public partial class SettingsWindow : Window
                 text.Foreground = Primary;
             }
             foreach (var text in new[] { OpenLogsCaption, Disclaimer, PopupSizeValue, ResetDurationValue, ResetTestCaption,
-                                         WarningValue, PaceDurationValue, PaceTestCaption, PaceCaption })
+                                         WarningValue, PaceDurationValue, PaceTestCaption, PaceCaption, AutoUpdateCaption })
             {
                 text.Foreground = Secondary;
             }
-            foreach (var toggle in new[] { ShowChartsSwitch, ShowModelsSwitch, ShowPaceSwitch, ShowTrayPaceSwitch, Notify5HourSwitch, Notify7DaySwitch,
+            foreach (var toggle in new[] { LaunchAtLoginSwitch, AutoUpdateSwitch,
+                                           ShowChartsSwitch, ShowModelsSwitch, ShowPaceSwitch, ShowTrayPaceSwitch, Notify5HourSwitch, Notify7DaySwitch,
                                            ResetToastSwitch, ResetPermanentSwitch, ResetSoundSwitch, NotifyPaceSwitch,
                                            PaceToastSwitch, PacePermanentSwitch, PaceSoundSwitch })
             {
@@ -238,6 +247,7 @@ public partial class SettingsWindow : Window
             ErrorText.Foreground = viewModel.Notice is null ? Orange : Secondary;
             ErrorText.Visibility = ErrorText.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
             AddAccountButton.Visibility = viewModel.Accounts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            RefreshUpdates();
 
             // How the numbers are shown only matters once there are numbers.
             DisplaySection.Visibility = viewModel.IsAuthenticated ? Visibility.Visible : Visibility.Collapsed;
@@ -260,6 +270,37 @@ public partial class SettingsWindow : Window
         {
             refreshing = false;
         }
+    }
+
+    /// <summary>The update row and the two switches only an installed copy has a use for.</summary>
+    private void RefreshUpdates()
+    {
+        var updater = viewModel.Updater;
+        InstalledOptions.Visibility = viewModel.CanLaunchAtLogin ? Visibility.Visible : Visibility.Collapsed;
+        LaunchAtLoginSwitch.IsChecked = viewModel.LaunchAtLogin;
+        AutoUpdateSwitch.IsChecked = updater.AutoUpdate;
+        AutoUpdateCaption.Text = updater.CheckIntervalLabel;
+        AutoUpdateCaption.Visibility = updater.AutoUpdate ? Visibility.Visible : Visibility.Collapsed;
+
+        if (updater.AvailableUpdate is not { } update)
+        {
+            UpdateFound.Visibility = Visibility.Collapsed;
+            CheckUpdatesButton.Visibility = Visibility.Visible;
+            CheckUpdatesButton.Content = updater.IsChecking ? L.T("Checking…") : L.T("Check for Updates");
+            CheckUpdatesButton.IsEnabled = !updater.IsChecking;
+            return;
+        }
+        CheckUpdatesButton.Visibility = Visibility.Collapsed;
+        UpdateFound.Visibility = Visibility.Visible;
+        var failed = updater.Phase == UpdatePhase.Failed;
+        UpdateSymbol.Text = failed ? "\uE7BA" : "\uE896"; // a warning triangle, an arrow into a tray
+        UpdateSymbol.Foreground = failed ? Orange : Green;
+        UpdateSymbol.Visibility = updater.ProgressLabel is null ? Visibility.Visible : Visibility.Collapsed;
+        UpdateText.Text = updater.ProgressLabel ?? (failed ? updater.FailureMessage : null) ?? L.F("v%@ available", update.Version);
+        UpdateText.Foreground = updater.Phase == UpdatePhase.Idle ? Primary : Secondary;
+        UpdateText.FontSize = failed ? 12 : 13;
+        UpdateAction.Content = updater.ActionLabel;
+        UpdateAction.Visibility = updater.ActionLabel is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void RefreshAlerts()

@@ -74,6 +74,7 @@ public partial class PopoverWindow : Window
         QuitLink.Click += (_, _) => Application.Current.Shutdown();
         SettingsLink.Click += (_, _) => SettingsRequested?.Invoke();
         AccountMenuButton.Click += (_, _) => OpenAccountMenu();
+        UpdateBannerAction.Click += (_, _) => viewModel.Updater.Act();
         foreach (var link in new[] { QuitLink, SettingsLink, AccountMenuButton })
         {
             link.MouseEnter += (_, _) => link.Foreground = Primary;
@@ -348,6 +349,27 @@ public partial class PopoverWindow : Window
         else
         {
             Badge.Visibility = Visibility.Collapsed;
+        }
+
+        var updater = viewModel.Updater;
+        if (updater.AvailableUpdate is { } update)
+        {
+            var green = Color.FromRgb(0x2E, 0xA0, 0x43);
+            UpdateBanner.Background = new SolidColorBrush(Palette.With(green, 0.14));
+            UpdateBannerSymbol.Text = "\uE896"; // an arrow into a tray
+            UpdateBannerSymbol.Foreground = new SolidColorBrush(isDark ? Color.FromRgb(0x4C, 0xC2, 0x62) : green);
+            UpdateBannerText.Text = L.F("v%@ available", update.Version);
+            UpdateBannerText.Foreground = Primary;
+            UpdateBannerProgress.Text = updater.ProgressLabel ?? "";
+            UpdateBannerProgress.Foreground = Secondary;
+            UpdateBannerProgress.Visibility = updater.ProgressLabel is null ? Visibility.Collapsed : Visibility.Visible;
+            UpdateBannerAction.Content = updater.ActionLabel;
+            UpdateBannerAction.Visibility = updater.ActionLabel is null ? Visibility.Collapsed : Visibility.Visible;
+            UpdateBanner.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            UpdateBanner.Visibility = Visibility.Collapsed;
         }
 
         NoticeText.Text = viewModel.Notice ?? "";

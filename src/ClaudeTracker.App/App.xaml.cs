@@ -13,10 +13,13 @@ namespace ClaudeTracker.App;
 public partial class App : Application
 {
     private const string ShowPopoverSignalName = @"Local\ClaudeTracker.ShowPopover";
+    private const string QuitSignalName = @"Local\ClaudeTracker.Quit";
 
     private Mutex? instanceMutex;
     private EventWaitHandle? showPopoverSignal;
     private RegisteredWaitHandle? showPopoverWait;
+    private EventWaitHandle? quitSignal;
+    private RegisteredWaitHandle? quitWait;
     private UsageViewModel? viewModel;
     private TrayIcon? tray;
     private PopoverWindow? popover;
@@ -29,16 +32,29 @@ public partial class App : Application
         // One instance per user session: a second copy would poll the same accounts and fight
         // over the same browser profiles. It asks the running copy to show itself instead.
         instanceMutex = new Mutex(initiallyOwned: true, @"Local\ClaudeTracker.SingleInstance", out var isFirstInstance);
-        if (!isFirstInstance)
+        // "--quit" is how the setup and the uninstaller close the app before they touch its
+        // files: the copy started with it tells the running one to quit, and starts nothing.
+        var quit = e.Args.Contains("--quit");
+        if (!isFirstInstance || quit)
         {
+            if (isFirstInstance) instanceMutex.ReleaseMutex();
+            instanceMutex.Dispose();
             instanceMutex = null;
-            AskRunningCopyToShowPopover();
+            if (quit) Signal(QuitSignalName);
+            else AskRunningCopyToShowPopover();
             Shutdown();
             return;
         }
         showPopoverSignal = new EventWaitHandle(initialState: false, EventResetMode.AutoReset, ShowPopoverSignalName);
         showPopoverWait = ThreadPool.RegisterWaitForSingleObject(
             showPopoverSignal, (_, _) => Dispatcher.BeginInvoke(() => popover?.ShowBesideTray()), null, Timeout.Infinite, executeOnlyOnce: false);
+        quitSignal = new EventWaitHandle(initialState: false, EventResetMode.AutoReset, QuitSignalName);
+        quitWait = ThreadPool.RegisterWaitForSingleObject(
+            quitSignal, (_, _) => Dispatcher.BeginInvoke(() =>
+            {
+                AppLogger.Shared.Info("asked to quit by another copy (--quit): a setup or the uninstaller is about to replace this one");
+                Shutdown();
+            }), null, Timeout.Infinite, executeOnlyOnce: true);
 
         // A failure in one handler must not take the tray app down; it is logged instead.
         DispatcherUnhandledException += (_, args) =>
@@ -82,6 +98,8 @@ public partial class App : Application
 
         // Light/dark or taskbar colour changed: both the icon and the popover depend on it.
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        // Back from sleep: a release may have come out meanwhile.
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         // Staleness and "Resets in …" depend on the clock, not only on new data.
         clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
@@ -109,7 +127,16 @@ public partial class App : Application
             ClaudeApiClient.SimulateChallengeOnce = true;
             AppLogger.Shared.Info("the first fetch will be treated as challenged (--challenge-once)");
         }
+        // Development aid: read the releases from somewhere else. A setup from there is run
+        // no more readily than one from GitHub: only with a signature the embedded key verifies.
+        if (ArgumentAfter(e.Args, "--update-feed") is { } feed)
+        {
+            viewModel.Updater.FeedUrl = feed;
+            AppLogger.Shared.Info($"updates are read from {feed} (--update-feed)");
+        }
+        viewModel.JustInstalled = e.Args.Contains("--just-installed");
         viewModel.Start();
+        viewModel.Updater.Start();
         RefreshTray();
         if (e.Args.Contains("--page-heap")) StartPageHeapLog();
 
@@ -141,8 +168,26 @@ public partial class App : Application
         // This process was just started by the user, so it may take the foreground; the
         // running copy may not, unless this one lets it.
         Native.AllowSetForegroundWindow(Native.AnyProcess);
-        if (!EventWaitHandle.TryOpenExisting(ShowPopoverSignalName, out var signal)) return;
+        Signal(ShowPopoverSignalName);
+    }
+
+    /// <summary>Raises a signal of the running copy, if there is one.</summary>
+    private static void Signal(string name)
+    {
+        if (!EventWaitHandle.TryOpenExisting(name, out var signal)) return;
         using (signal) signal.Set();
+    }
+
+    /// <summary>The argument that follows a switch on the command line, if both are there.</summary>
+    private static string? ArgumentAfter(string[] arguments, string name)
+    {
+        var at = Array.IndexOf(arguments, name);
+        return at >= 0 && at + 1 < arguments.Length ? arguments[at + 1] : null;
+    }
+
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == PowerModes.Resume) Dispatcher.BeginInvoke(() => viewModel?.Updater.CheckForUpdates());
     }
 
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e) =>
@@ -161,6 +206,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         clock?.Stop();
         LoginWindow.CloseCurrent();
         SettingsWindow.CloseCurrent();
@@ -169,6 +215,8 @@ public partial class App : Application
         tray?.Dispose();
         showPopoverWait?.Unregister(null);
         showPopoverSignal?.Dispose();
+        quitWait?.Unregister(null);
+        quitSignal?.Dispose();
         if (instanceMutex is not null)
         {
             instanceMutex.ReleaseMutex();

@@ -1,6 +1,7 @@
 <Window x:Class="ClaudeTracker.App.PopoverWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ClaudeTracker.App"
         Title="Claude Tracker"
         Width="340" SizeToContent="Height"
         WindowStyle="None" ResizeMode="NoResize"
@@ -33,6 +34,15 @@
                 <Button x:Name="AccountMenuButton" DockPanel.Dock="Right" Style="{StaticResource Link}"
                         FontSize="12" FontWeight="SemiBold" Margin="0,0,2,0" VerticalAlignment="Center" MaxWidth="150" />
             </DockPanel>
+            <!-- While a newer release is known: what it is, and the one thing to do about it. -->
+            <Border x:Name="UpdateBanner" CornerRadius="8" Padding="10,6" Margin="0,12,0,0" Visibility="Collapsed">
+                <DockPanel LastChildFill="True">
+                    <Button x:Name="UpdateBannerAction" DockPanel.Dock="Right" FontSize="11" Padding="10,3" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock x:Name="UpdateBannerProgress" DockPanel.Dock="Right" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    <local:SymbolText x:Name="UpdateBannerSymbol" DockPanel.Dock="Left" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <TextBlock x:Name="UpdateBannerText" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+            </Border>
             <!-- "Usage" | "Charts", while signed in and with the Charts tab switched on. -->
             <ContentControl x:Name="TabBar" Margin="0,14,0,0" Focusable="False" />
             <!-- A passing remark from the app ("That account was already here…"). Outside the
