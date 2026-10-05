@@ -276,4 +276,104 @@ public class WindowsOnlyTests
     [InlineData("Couldn't reach claude.ai")]
     [InlineData("claude.ai took too long to answer")]
     public void NetworkFailureTextIsTranslated(string key) => Assert.NotEqual(key, L.Lookup("es", key));
+
+    // MARK: - Pace lines
+    //
+    // The Mac app words these inside its row view, where no test reaches them. The values
+    // asserted here are what that view produces for the same inputs.
+
+    [Theory]
+    [InlineData(8.4, 2.17, "+8.4%/hr · full in 2h 10m")]
+    [InlineData(8.4, 2.999, "+8.4%/hr · full in 2h 59m")]  // minutes are cut, never rounded up
+    [InlineData(8.4, 2.0, "+8.4%/hr · full in 2h")]
+    [InlineData(8.4, 0.75, "+8.4%/hr · full in 45m")]
+    [InlineData(8.4, 0.005, "+8.4%/hr · full in 1m")]      // never "full in 0m"
+    [InlineData(8.4, 23.99, "+8.4%/hr · full in 23h 59m")]
+    [InlineData(8.4, 24.0, "+8.4%/hr")]                    // a day or more away says nothing
+    [InlineData(12.6, 30.0, "+13%/hr")]
+    public void ThePaceLineSaysWhenTheWindowFillsOnlyWithinADay(double rate, double projectedHours, string expected) =>
+        Assert.Equal(expected, PaceText.Line(rate, projectedHours, PaceRateUnit.PerHour));
+
+    [Fact]
+    public void ThePaceLineIsTheRateAloneWithoutAProjection()
+    {
+        Assert.Equal("+8.4%/hr", PaceText.Line(8.4, null, PaceRateUnit.PerHour));
+        Assert.Equal("+0.500%/min · full in 45m", PaceText.Line(30, 0.75, PaceRateUnit.PerMinute));
+    }
+
+    /// <summary>A reset time whose outlook phrase is number <paramref name="slot"/> in a list of that many.</summary>
+    private static DateTimeOffset ResetInSlot(int slot, int count) =>
+        DateTimeOffset.UnixEpoch.AddSeconds(600.0 * (3_000_000L * count + slot));
+
+    [Theory]
+    [InlineData(0, "On track — resets before limit")]
+    [InlineData(1, "You're good — resets in time")]
+    [InlineData(4, "No rush — plenty of time left")]
+    public void ASafePaceReadsTheSamePhraseForAWholeCycle(int slot, string expected)
+    {
+        var reset = ResetInSlot(slot, 5);
+        // Fills in 10 h, resets in 5 h — and again half an hour later, with the reset a second early.
+        Assert.Equal((PaceBand.Safe, expected), PaceText.Outlook(10, reset, reset.AddHours(-5)));
+        Assert.Equal((PaceBand.Safe, expected), PaceText.Outlook(10, reset.AddSeconds(-1), reset.AddHours(-4.5)));
+    }
+
+    [Fact]
+    public void AClosePaceWarnsWithoutATime()
+    {
+        var reset = ResetInSlot(2, 5);
+        // 4.5 h to fill against 5 h to the reset: inside the last fifth.
+        Assert.Equal((PaceBand.Close, "Caution — cutting it close"), PaceText.Outlook(4.5, reset, reset.AddHours(-5)));
+    }
+
+    [Theory]
+    // hours to the reset, hours to full, slot, expected
+    [InlineData(5.0, 2.0, 0, "Will hit limit ~3h before reset")]      // three hours or more: no minutes
+    [InlineData(5.0, 3.5, 1, "Runs out ~1h 30m before reset")]
+    [InlineData(5.0, 3.0, 2, "On pace to fill ~2h early")]            // a whole number of hours
+    [InlineData(1.0, 0.5, 3, "Full ~30m before window resets")]
+    [InlineData(5.0, 0.25, 0, "Will hit limit ~4h before reset")]     // 4 h 45 m is never rounded up to 5
+    public void AnOverPaceSaysHowEarlyTheWindowRunsOut(double hoursToReset, double hoursToFull, int slot, string expected)
+    {
+        var reset = ResetInSlot(slot, 4);
+        Assert.Equal((PaceBand.Over, expected), PaceText.Outlook(hoursToFull, reset, reset.AddHours(-hoursToReset)));
+    }
+
+    [Fact]
+    public void ThereIsNoOutlookWithoutAProjectionOrAResetAhead()
+    {
+        var reset = ResetInSlot(0, 5);
+        Assert.Null(PaceText.Outlook(null, reset, reset.AddHours(-5)));
+        Assert.Null(PaceText.Outlook(0, reset, reset.AddHours(-5)));
+        Assert.Null(PaceText.Outlook(2, null, reset.AddHours(-5)));
+        Assert.Null(PaceText.Outlook(2, reset, reset));              // the reset is now
+        Assert.Null(PaceText.Outlook(2, reset, reset.AddMinutes(1))); // the reset has passed
+    }
+
+    // MARK: - Extra usage and popup size
+
+    [Theory]
+    [InlineData("en-US", "$12.34 / $50.00")]
+    [InlineData("en-GB", "US$12.34 / US$50.00")]     // a bare "$" would not say whose dollars
+    [InlineData("es-CL", "US$12,34 / US$50,00")]     // Chile's own "$" has no decimals; these keep two
+    public void ExtraUsageIsWrittenAsUsDollarsInTheReadersOwnNumberStyle(string culture, string expected) =>
+        Assert.Equal(expected, Money.SpentOfLimit(12.34, 50, new System.Globalization.CultureInfo(culture)));
+
+    [Fact]
+    public void UsDollarsSurviveACultureWithNoCountry()
+    {
+        Assert.Equal("US$1,234.50", Money.Usd(1234.5, System.Globalization.CultureInfo.InvariantCulture));
+        // Spanish without a country writes the symbol after the number.
+        Assert.Contains("US$", Money.Usd(5, new System.Globalization.CultureInfo("es")));
+    }
+
+    [Theory]
+    [InlineData(null, 1.0)]
+    [InlineData(0.0, 1.0)]
+    [InlineData(-2.0, 1.0)]
+    [InlineData(double.NaN, 1.0)]
+    [InlineData(0.5, 0.75)]
+    [InlineData(1.25, 1.25)]
+    [InlineData(9.0, 1.5)]
+    public void AStoredPopupSizeIsBroughtIntoRange(double? stored, double expected) =>
+        Assert.Equal(expected, PopupScale.Normalized(stored));
 }
