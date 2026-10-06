@@ -360,9 +360,10 @@ section), and `Start-Process -Wait` on a setup waits for the app the setup start
 
 ## Releases
 
-Nothing has been released yet. The Build workflow has run on GitHub (green at its first
-run, 2026-10-06); the two steps below that need a tag or the Mac — the Release workflow
-and the publish script — have never run. The script they share with a build by hand has.
+Nothing has been published yet. The Build and the Release workflow have both run on
+GitHub (2026-10-06, green at the first run; v0.1.0 is a draft there, and its setup was
+installed on a PC). The publish script has not run as a whole: its checks were tried by
+hand on that draft, and the signing and the publishing need the Mac.
 
 ```bash
 # 1. Bump <Version> in Directory.Build.props, commit, tag the same number, push both.

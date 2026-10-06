@@ -9,11 +9,11 @@
 # Nothing is public until the last step, and the app passes drafts over, so a run that
 # fails leaves users untouched: run it again.
 #
-# What this signs is what every installed copy will run without asking. It checks that the
-# workflow ran on the commit tagged in THIS clone, and that the setup carries the version;
-# it does not check that the draft's file is the one that run built. Someone able to write
-# to the repository on GitHub could put another file with the right version on the draft
-# between the build and this script: look at the draft before running this if in doubt.
+# What this signs is what every installed copy will run without asking, so it signs only a
+# file it can tie to the maintainer's own tag: the workflow must have run on the commit
+# tagged in THIS clone, the draft's file must be the one that run built (by the SHA-256 the
+# build printed in its log), and the setup must carry the version. What that leaves is the
+# build itself: the packages and tools the workflow fetches are trusted as they come.
 #
 # The Mac repo is looked for beside this one (the workspace's layout); CLAUDETRACKER_MAC_REPO
 # points somewhere else.
@@ -79,6 +79,16 @@ built_from=$(gh run view "$run" --json headSha -q .headSha)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 gh release download "$tag" --pattern ClaudeTracker-Setup.exe --dir "$tmp"
+
+# The file on the draft must be the file that run built. The build prints the SHA-256 of
+# the setup it made (scripts/build-installer.ps1), and a finished run's log cannot be
+# changed: a file put on the draft afterwards does not match it.
+built_hash=$(gh run view "$run" --log | grep -o 'sha256 [0-9a-f]\{64\}' | tail -1 | cut -d' ' -f2)
+draft_hash=$(shasum -a 256 "$tmp/ClaudeTracker-Setup.exe" | cut -d' ' -f1)
+if [ -z "$built_hash" ] || [ "$built_hash" != "$draft_hash" ]; then
+  echo "The setup on the draft ($draft_hash) is not the file the workflow built (${built_hash:-no hash found in the log of the run})." >&2
+  exit 1
+fi
 
 # Sign only the build this version promises; the app checks the file's version again after verifying.
 built=$(setup_version "$tmp/ClaudeTracker-Setup.exe")
