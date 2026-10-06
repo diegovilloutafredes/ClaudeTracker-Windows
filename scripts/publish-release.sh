@@ -83,7 +83,8 @@ gh release download "$tag" --pattern ClaudeTracker-Setup.exe --dir "$tmp"
 # The file on the draft must be the file that run built. The build prints the SHA-256 of
 # the setup it made (scripts/build-installer.ps1), and a finished run's log cannot be
 # changed: a file put on the draft afterwards does not match it.
-built_hash=$(gh run view "$run" --log | grep -o 'sha256 [0-9a-f]\{64\}' | tail -1 | cut -d' ' -f2)
+# (|| true: with no hash in the log the search fails, and the check below should say so.)
+built_hash=$(gh run view "$run" --log | grep -o 'sha256 [0-9a-f]\{64\}' | tail -1 | cut -d' ' -f2 || true)
 draft_hash=$(shasum -a 256 "$tmp/ClaudeTracker-Setup.exe" | cut -d' ' -f1)
 if [ -z "$built_hash" ] || [ "$built_hash" != "$draft_hash" ]; then
   echo "The setup on the draft ($draft_hash) is not the file the workflow built (${built_hash:-no hash found in the log of the run})." >&2
