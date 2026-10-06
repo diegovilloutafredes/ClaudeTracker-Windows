@@ -1,6 +1,6 @@
 ---
 name: run-app
-description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, hover and click with the real pointer where that is not enough, read it as a screen reader is handed it, walk every surface in another language, reach the tray icon from the keyboard, run its setup and uninstaller as a person would, test launch at sign-in and updates without a release, cut it off from the network to test recovery, measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
+description: Build, launch and check the ClaudeTracker Windows tray app from a terminal — show its popover, read and capture only the app's own windows, press its buttons through UI Automation, hover and click with the real pointer where that is not enough, read it as a screen reader is handed it, walk every surface in another language, reach the tray icon from the keyboard, run its setup and uninstaller as a person would, test launch at sign-in and updates without a release, cut it off from the network to test recovery, measure where its popover stands against the taskbar (and place it as if the taskbar were on another edge), measure its memory, and find its logs and data. Use when asked to run the app, see a UI change, or confirm something works in the real app rather than in tests.
 ---
 
 # Running and checking the Windows app
@@ -31,6 +31,11 @@ Start-Process $exe
   light one, for comparing the two (`shared/DIVERGENCES.md` row 4). The log says so at start.
 - `--no-focus` shows the popover without asking for the keyboard focus, as when Windows
   refuses it. Expect it to leave by itself 8 seconds later unless the pointer is on it.
+  It is also the considerate way to look at the popover while the user is typing elsewhere.
+- `--taskbar-edge top` (or `left`, `right`, `bottom`) places the popover and the toasts as
+  if the taskbar were on that edge, without moving it: the log says so at start. Expect the
+  popover under the top edge in the Mac's arrangement (tab bar above the content), or in
+  the bottom corner beside a side edge with the tab bar under the content.
 - `--page-heap` logs, once a minute, what the hidden page holds ("page heap: js 700 of
   1024 KB, engine objects … KB, buffers … KB"). Expect the numbers to climb and, every 30
   minutes, to fall back when the app has the page collect its garbage. A floor that rises
@@ -259,14 +264,49 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind stop
   seen on this PC. `feed.ps1` says how to serve one signed on the Mac.
 - Do not press "Download": it opens the user's browser.
 
-## Does the popover fit the screen
+## Where the popover stands, and whether it fits
 
-`fit.ps1 -Scale 1.5` (the popup size in use) measures the popover on screen: its top against
-the work area, the height of the Charts tab's list, and what stands around the list. Set
-`popupScale` to 1.5 and `selectedTab` to 1 in the settings with the app closed, start it
-with a feed that offers an update (`odd-address` installs nothing), and measure before and
-after the banner appears ten seconds in: the list must get shorter by the banner's height
-and the popover stay as tall as it was, inside the screen. Put the two settings back.
+`fit.ps1` measures the popover on screen against the taskbar: the edge the taskbar is on
+and whether it hides itself, how far the popover is from the strip the taskbar shows in
+(it must say CLEAR, by the 12 pixels of the gap), where the tab bar and the Charts tab's
+range picker and content button are, how tall the list of charts is, and what stands
+around the list.
+
+```powershell
+Start-Process $exe; Start-Sleep -Milliseconds 1200
+powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\run-app\fit.ps1              # -Scale 1.5 with the popup size at 150 %
+```
+
+- **The controls must not move.** Measure, select the other tab or switch a chart off
+  through UI Automation (`SelectionItemPattern` on `popover-tab-1`, `TogglePattern` on an
+  item of the content menu — put it back), and measure again without showing the popover
+  anew: the lines for the tab bar and the two controls must be the same, while the
+  popover's top (above a taskbar at the bottom) is not. A showing lasts 8 seconds from a
+  terminal: do both measurements inside one.
+- **The other edges without moving the taskbar:** start the app with `--taskbar-edge top`
+  (or `left`, `right`) and measure the same way. Launching again shows the popover where
+  the tray is; a press on the icon, which centres it on the pointer, needs a person. Read
+  the rectangles then, not the line that says CLEAR: `fit.ps1` measures against the
+  taskbar where it really is. With `--reset-once` as well, a reset toast appears ten
+  seconds in without Settings being opened, which would take the keyboard: it must stand
+  in the same corner, and move past the popover when that is shown.
+- **Where it would go, with no window at all:** `Taskbar.Find` is the app's own reading of
+  the taskbar, and can be asked from a throwaway console project that references the built
+  `ClaudeTracker.dll` and `ClaudeTracker.Core.dll` (it is internal: call it through
+  reflection, with null for "no press", after setting `Taskbar.Pretend` for another edge),
+  then `PopoverPlacement.Place` on what it gives. That is how all four edges were checked
+  while a game was in front. It says where the popover would be held, not that it gets there.
+- **The list's limit:** set `popupScale` to 1.5 and `selectedTab` to 1 in the settings with
+  the app closed, start it with a feed that offers an update (`odd-address` installs
+  nothing), and measure with `-Scale 1.5` before and after the banner appears ten seconds
+  in: the list must get shorter by the banner's height and the popover stay as tall as it
+  was, inside the screen. Put the two settings back.
+- **The screen is not always the same screen.** A game in full screen at another
+  resolution changes the screen's size under the app (here it was 3840 × 2160 at one
+  opening and 2560 × 1440 ten seconds later), and every number measured is in the pixels
+  of the moment. `busy.ps1` gives the size as it is now.
+  The app's log says what it found at each change: "popover: the taskbar is on the bottom
+  edge, with room beside it from 0,0 to 2560,1396".
 
 ## Cut the app off from the network
 
@@ -353,3 +393,8 @@ Its browser processes are the `msedgewebview2.exe` whose command line contains
   "start clean" without asking.
 - Showing the popover takes the keyboard focus for a moment. Don't do it in a loop while
   the user is working.
+- **Run `busy.ps1` before putting any window on the screen**, and again before each later
+  round: it says when a game, a video or a presentation is in full screen (exit code 1).
+  The popover is always on top — it showed over a game in full screen once, which nobody
+  wants in the middle of a match, and that can throw the game out of full screen. While
+  it says BUSY, do what needs no screen, and leave what does for later or for the user.

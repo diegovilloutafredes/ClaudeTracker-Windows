@@ -16,8 +16,9 @@ session. Open source, MIT licensed.
 icon, popover with usage rows and pace, sign-in window, polling (spec CT-001, done) and a
 Settings window with several accounts (CT-002, done), one row per account (CT-003),
 alerts for resets and pace (CT-004, done), a setup with signed updates and launch at
-sign-in (CT-005, done), the Charts tab (CT-006, done), and a pass in Spanish and as a
-screen reader is handed it (CT-007, done) — specs in the workspace's `shared/features/`.
+sign-in (CT-005, done), the Charts tab (CT-006, done), a pass in Spanish and as a
+screen reader is handed it (CT-007, done), and a popover that stands beside the taskbar
+on whichever edge it is (CT-009) — specs in the workspace's `shared/features/`.
 Nothing is released yet; the repo has been on GitHub since 2026-10-06. The app has been run signed in
 (2026-10-05, through Google with a passkey), from a build folder and installed by its
 setup: sign-in is detected, usage rows appear, the session survives a relaunch, an upgrade
@@ -49,6 +50,7 @@ src/ClaudeTracker.Core/               ← logic, API decoders, storage. net10.0,
   Alerts.cs                           ← the words of the two alerts, which windows raise them, the sliders' ranges
   History.cs                          ← chart history, chart series, downsampling
   ChartLayout.cs                      ← the charts' arithmetic: the forecast's frame, the axis marks, the figures
+  Placement.cs                        ← where the popover and the toasts go: the taskbar's edge and strip, the held corner
   Updates.cs                          ← release parsing, version compare, update signature verification
   FetchFailure.cs                     ← classification of in-page fetch failures; API errors
   LoginItem.cs                        ← launch at sign-in: what Windows' two records mean, and what to do about them
@@ -68,7 +70,7 @@ src/ClaudeTracker.App/                ← the app: WPF + WebView2, everything th
   LoginWindow.xaml(.cs)               ← claude.ai's login page; detects the new session cookie
   SettingsWindow.xaml(.cs)            ← accounts, display and alert settings; its two questions (rename, remove)
   Toasts.cs                           ← the toasts above the tray: a window reset, a pace warning
-  Infrastructure.cs                   ← file locations, the log, light/dark detection, the sign-in entry, the symbol font, Win32 calls
+  Infrastructure.cs                   ← file locations, the log, light/dark detection, the sign-in entry, where the taskbar is, the symbol font, Win32 calls
   Assets/ClaudeTracker.ico            ← the app icon, written by scripts/generate-appicon.ps1
 tests/ClaudeTracker.Core.Tests/       ← xUnit; Fixtures/ holds COPIES of the shared test vectors
 installer/ClaudeTracker.iss           ← the setup and the uninstaller (Inno Setup 6)
@@ -127,7 +129,10 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
   current one. Enter on the icon, from the keyboard, arrives as a double click, which
   shows the popover. So does a double click of the mouse, whose first click has opened
   it and whose second press has closed it again: it ends open (meant, and not yet seen —
-  `shared/TESTING.md`).
+  `shared/TESTING.md`). The two are told apart by whether the mouse button went down on
+  the icon just before (`PopoverWindow.Open`): only then does the pointer say where the
+  icon is. From the keyboard, from the icon's menu and at a launch the popover opens
+  where the tray is, wherever the pointer happens to be.
 - **A date is written in the language of the sentence around it** (`TimeText.DisplayCulture`):
   Windows' regional format while that speaks the display language, else the display
   language's own.
@@ -247,8 +252,9 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
   without activation). If it did, clicking it would make it the active window and the
   popover, which hides when it loses the focus, would vanish under it. Since nobody can tab
   to it, its text is announced to screen readers when it appears (`Announce`). `ToastHost`
-  stacks toasts upwards from the tray's corner, above the popover while that shows, in
-  pixels like the popover.
+  stacks toasts from the tray's corner away from the taskbar — upwards from one at the
+  bottom, downwards from one at the top — past the popover while that shows, in pixels
+  like the popover (`PopoverPlacement.Stack`).
 - **Alerts are for the active account only, and a pace alert warns once per episode.** The
   rule for one window is `PaceMath.AlertStep`; `CheckPaceNotifications` applies it to
   every window and keeps the toast ids so a warning can be taken down when its reason is
@@ -261,14 +267,34 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
 - **The tray icon's press is noted before its click** (`NoteTrayPress`): pressing the icon
   hides an open popover by taking the focus, so the click that follows must already know
   it was open, or it would open it again.
-- **The popover is pinned by its bottom-right corner, in pixels, inside
-  `WM_WINDOWPOSCHANGING`** (`PopoverWindow.KeepPinned`). Its height follows its content, and
-  a window grows from its top-left corner, so without the pin the rows arriving after
-  "Loading…" push its lower half off the bottom of the screen (seen on the first signed-in
-  run). Do not move this to `SizeChanged`: that event fires before the window itself has
-  been resized, so `GetWindowRect` still returns the old size and the correction does
-  nothing. Pixels, not WPF units, because WPF's coordinates change meaning between monitors
-  of different scale.
+- **The popover is held by the corner nearest the tray, in pixels, inside
+  `WM_WINDOWPOSCHANGING`** (`PopoverWindow.KeepPinned`, on a `Pin`). Its height follows its
+  content, and a window grows from its top-left corner, so above a taskbar at the bottom
+  the rows arriving after "Loading…" push its lower half off the bottom of the screen
+  unless it is held by its bottom (seen on the first signed-in run). Do not move this to
+  `SizeChanged`: that event fires before the window itself has been resized, so
+  `GetWindowRect` still returns the old size and the correction does nothing. Pixels, not
+  WPF units, because WPF's coordinates change meaning between monitors of different scale.
+- **Where the taskbar is is asked at every opening** (`Taskbar.Find`), and the arithmetic
+  is `PopoverPlacement`'s, pure and tested (CT-009): which edge it is on, the room beside
+  it, which corner is held. Nothing is kept between two openings — the taskbar can be
+  moved, and the screen changes size under the app when a game takes it over. A taskbar
+  that hides itself is no part of Windows' work area, so its strip is taken off by hand
+  (`Room`): the popover once stood 32 pixels into it, under the taskbar when that came
+  back. The shell answers only for the taskbar that holds the tray; on another screen the
+  work area is all there is to go by. Without a press to open at, the popover stands flush
+  in the tray's corner (`TrayEnd`): the notification area's rectangle is asked for only to
+  learn which end of the bar the tray is at, never to centre on — it is as wide as the
+  icons a user keeps in it.
+- **What is pressed stands on the side of the popover that is held still**
+  (`PopoverWindow.ArrangeRows`, and the rows `ChartsTab.Refresh` sets). The Mac's order —
+  header, tabs, content, footer — is right under a bar at the top. Held by its bottom,
+  everything above a change of height moves: pressing "Charts" took the tab bar out from
+  under the pointer, and switching a chart off did the same to the content button. So
+  above a taskbar at the bottom the tab bar is under the content, and the range picker
+  and the content button under the list. **Only the rows of a `Grid` change, never the
+  order of its children**: that order is what a screen reader and the Tab key follow, and
+  it stays header, tabs, content, footer either way.
 
 ### Development switches
 
@@ -285,6 +311,7 @@ what a user gets; `.claude/skills/run-app` says what to expect from each.
 | `--full-host-page` | Hosts the hidden browser on the full claude.ai page from the start |
 | `--challenge-once` | Treats the first fetch as challenged by Cloudflare |
 | `--no-focus` | Shows the popover without asking for the keyboard focus |
+| `--taskbar-edge <edge>` | Places the popover and the toasts as if the taskbar were on that edge (`top`, `left`, `right`, `bottom`), without moving it |
 | `--page-heap` | Logs what the hidden page holds in memory, once a minute |
 | `--reset-once` | Treats the second poll as a reset of the 5-Hour window, through the real detection path |
 | `--pace-alert-always` | Counts any pace as inside the warning threshold, so a pace alert fires as soon as there is a pace |
