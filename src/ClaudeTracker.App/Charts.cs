@@ -271,11 +271,18 @@ internal sealed class Segmented : Border
 internal sealed class ChartsTab
 {
     private readonly UsageViewModel viewModel;
-    private readonly StackPanel root = new();
+    /// <summary>
+    /// Rows, not a stack: the controls stand above the list or under it (<see cref="Refresh"/>)
+    /// and are the first thing a screen reader and the Tab key meet either way.
+    /// </summary>
+    private readonly Grid root = new();
+    /// <summary>The range picker and the content button.</summary>
+    private readonly DockPanel controls = new();
     private readonly Segmented ranges;
     private readonly Button filter;
     /// <summary>Stands in for the list: "Nothing selected", "No data for this period".</summary>
-    private readonly TextBlock message = new() { FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 26, 0, 16) };
+    private readonly TextBlock message = new() { FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center };
+    private bool controlsBelow;
     /// <summary>
     /// The scroll bar is drawn over the list's right edge, not beside it: the margin is its
     /// lane. Without one it covers the ends of the figures and the axis labels.
@@ -309,7 +316,6 @@ internal sealed class ChartsTab
         viewer = new ScrollViewer
         {
             Content = list,
-            Margin = new Thickness(0, 14, 0, 0),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Focusable = false,
@@ -319,18 +325,31 @@ internal sealed class ChartsTab
         // arrows and Page Up and Down move it. Otherwise it would be a stop that does nothing.
         viewer.ScrollChanged += (_, _) => viewer.Focusable = viewer.IsTabStop = viewer.ScrollableHeight > 0;
 
-        var controls = new DockPanel();
         DockPanel.SetDock(filter, Dock.Right);
         controls.Children.Add(filter);
         controls.Children.Add(ranges);
+        for (var row = 0; row < 3; row++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.Children.Add(controls);
         root.Children.Add(message);
         root.Children.Add(viewer);
     }
 
     /// <summary>Brings the tab up to date with the view model and returns it: always the same element.</summary>
-    public UIElement Refresh(Palette palette, double maxListHeight)
+    /// <param name="controlsBelow">
+    /// The popover is held by its bottom, so the range picker and the content button go under
+    /// the list, where they stay still while the list changes height: switching a chart off
+    /// otherwise moved the button out from under the pointer.
+    /// </param>
+    public UIElement Refresh(Palette palette, double maxListHeight, bool controlsBelow)
     {
+        this.controlsBelow = controlsBelow;
+        Grid.SetRow(controls, controlsBelow ? 2 : 0);
+        Grid.SetRow(message, controlsBelow ? 0 : 1);
+        Grid.SetRow(viewer, controlsBelow ? 1 : 2);
+        // The gap is between the controls and what they are about, whichever is on top.
+        viewer.Margin = controlsBelow ? new Thickness(0, 0, 0, 14) : new Thickness(0, 14, 0, 0);
+        message.Margin = controlsBelow ? new Thickness(0, 16, 0, 26) : new Thickness(0, 26, 0, 16);
+
         followers.Clear();
         var now = DateTimeOffset.UtcNow;
         var lower = now.AddHours(-viewModel.ChartTimeRange.Hours());
@@ -387,7 +406,9 @@ internal sealed class ChartsTab
     {
         if (menu is { } already) already.IsOpen = false;
         var hidden = viewModel.HiddenChartSeries;
-        var opened = new ContextMenu { PlacementTarget = filter, Placement = PlacementMode.Bottom };
+        // Over the list either way: under the list the button is at the foot of the popover,
+        // with the tab bar and the taskbar below it.
+        var opened = new ContextMenu { PlacementTarget = filter, Placement = controlsBelow ? PlacementMode.Top : PlacementMode.Bottom };
         opened.Items.Add(MenuHeading(L.T("Windows")));
         foreach (var series in viewModel.ChartSeries)
         {

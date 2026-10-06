@@ -104,10 +104,10 @@ public partial class App : Application
         tray = new TrayIcon();
         tray.Pressed += popover.NoteTrayPress;
         tray.Clicked += popover.Toggle;
-        tray.OpenRequested += popover.ShowNearCursor;
+        tray.OpenRequested += popover.Open;
         tray.SettingsRequested += () => SettingsWindow.Open(viewModel);
         popover.SettingsRequested += () => SettingsWindow.Open(viewModel);
-        // Toasts share the popover's corner: while it shows, they stack above it.
+        // Toasts share the popover's corner: while it shows, they stack past it.
         ToastHost.Shared.Obstacle = () => popover.ScreenBounds;
         popover.IsVisibleChanged += (_, _) => ToastHost.Shared.Arrange();
         popover.SizeChanged += (_, _) => Dispatcher.BeginInvoke(ToastHost.Shared.Arrange);
@@ -137,6 +137,14 @@ public partial class App : Application
         {
             ClaudeApiClient.StartOnFullPage = true;
             AppLogger.Shared.Info("host page: the full claude.ai page (--full-host-page)");
+        }
+        // Development aid: place the popover and the toasts as if the taskbar were on another
+        // edge of the screen, on a PC whose taskbar cannot or should not be moved to look.
+        if (ArgumentAfter(e.Args, "--taskbar-edge") is { } side
+            && Enum.TryParse<ScreenEdge>(side, ignoreCase: true, out var pretended) && Enum.IsDefined(pretended))
+        {
+            Taskbar.Pretend = pretended;
+            AppLogger.Shared.Info($"the taskbar is taken to be on the {pretended.ToString().ToLowerInvariant()} edge (--taskbar-edge)");
         }
         // Development aids: a reset on the next poll; any pace counts as worth a warning.
         UsageViewModel.SimulateResetOnce = e.Args.Contains("--reset-once");

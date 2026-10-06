@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using ClaudeTracker.Core;
 using Microsoft.Win32;
+using WinForms = System.Windows.Forms;
 
 namespace ClaudeTracker.App;
 
@@ -175,6 +176,82 @@ internal static class SystemTheme
     }
 }
 
+/// <summary>
+/// Where Windows' taskbar is. Asked every time something is placed beside it: the user can
+/// move it to another edge of the screen, and have it hide itself. What to do with the answer
+/// is <see cref="PopoverPlacement"/>'s.
+/// </summary>
+internal static class Taskbar
+{
+    /// <summary>Development aid (<c>--taskbar-edge</c>): the edge to take the taskbar to be on.</summary>
+    public static ScreenEdge? Pretend { get; set; }
+
+    /// <summary>
+    /// The taskbar's edge, the room beside it on the screen in question, and the point along
+    /// the taskbar to open at.
+    /// </summary>
+    /// <param name="press">Where the pointer pressed the tray icon; null to open where the tray is.</param>
+    public static (ScreenEdge Edge, ScreenRect Room, int Along) Find(Native.Point? press)
+    {
+        // The shell answers for the taskbar that holds the tray, showing or hidden.
+        var data = new Native.AppBarData { Size = (uint)Marshal.SizeOf<Native.AppBarData>() };
+        var answered = Native.SHAppBarMessage(Native.AppBarGetTaskbarPosition, ref data) != UIntPtr.Zero;
+        var bar = System.Drawing.Rectangle.FromLTRB(data.Bounds.Left, data.Bounds.Top, data.Bounds.Right, data.Bounds.Bottom);
+        var barScreen = answered ? WinForms.Screen.FromRectangle(bar) : null;
+
+        var screen = press is { } at ? WinForms.Screen.FromPoint(new System.Drawing.Point(at.X, at.Y))
+            : barScreen ?? WinForms.Screen.PrimaryScreen ?? WinForms.Screen.AllScreens[0];
+        var (whole, work) = (ToRect(screen.Bounds), ToRect(screen.WorkingArea));
+
+        // On a screen that taskbar is not on, the screen's own work area is all there is to
+        // go by: it says where a bar that is always showing stands, and nothing of one that hides.
+        var edge = PopoverPlacement.EdgeOf(whole, work) ?? ScreenEdge.Bottom;
+        var thickness = 0;
+        if (barScreen?.DeviceName == screen.DeviceName)
+        {
+            edge = data.Edge switch { 0 => ScreenEdge.Left, 1 => ScreenEdge.Top, 2 => ScreenEdge.Right, _ => ScreenEdge.Bottom };
+            thickness = edge is ScreenEdge.Top or ScreenEdge.Bottom ? bar.Height : bar.Width;
+        }
+        var real = edge;
+        if (Pretend is { } pretended)
+        {
+            edge = pretended;
+            thickness = barScreen is null ? 0 : Math.Min(bar.Width, bar.Height);
+        }
+
+        var across = edge is ScreenEdge.Top or ScreenEdge.Bottom;
+        int along;
+        if (press is { } pressed)
+        {
+            along = across ? pressed.X : pressed.Y;
+        }
+        else
+        {
+            // The tray's rectangle says which end of the bar it is at — as long as that bar
+            // runs the way this one does. Told to take the taskbar to be on a side, a tray
+            // that lies along the bottom says nothing.
+            var tray = (real is ScreenEdge.Top or ScreenEdge.Bottom) == across ? TrayBounds() : null;
+            along = PopoverPlacement.TrayEnd(edge, whole, tray);
+        }
+        return (edge, PopoverPlacement.Room(whole, work, edge, thickness), along);
+    }
+
+    /// <summary>
+    /// The notification area's rectangle: where the tray icons are, whichever edge the taskbar
+    /// is on. Null when Windows has no window of that name. Hidden with the taskbar it lies
+    /// off the screen, but no further along it.
+    /// </summary>
+    private static ScreenRect? TrayBounds()
+    {
+        var bar = Native.FindWindow("Shell_TrayWnd", null);
+        var tray = bar == IntPtr.Zero ? IntPtr.Zero : Native.FindWindowEx(bar, IntPtr.Zero, "TrayNotifyWnd", null);
+        if (tray == IntPtr.Zero || !Native.GetWindowRect(tray, out var bounds)) return null;
+        return bounds.Right > bounds.Left && bounds.Bottom > bounds.Top ? new ScreenRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom) : null;
+    }
+
+    private static ScreenRect ToRect(System.Drawing.Rectangle area) => new(area.Left, area.Top, area.Right, area.Bottom);
+}
+
 /// <summary>Windows' own symbols: the pencil, the bin, the filter.</summary>
 internal static class Symbols
 {
@@ -261,6 +338,32 @@ internal static class Native
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string className, string? title);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string? title);
+
+    /// <summary>APPBARDATA: what the shell fills in about its taskbar.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct AppBarData
+    {
+        public uint Size;
+        public IntPtr Window;
+        public uint CallbackMessage;
+        /// <summary>ABE_LEFT, ABE_TOP, ABE_RIGHT, ABE_BOTTOM: 0 to 3.</summary>
+        public uint Edge;
+        public Rect Bounds;
+        public IntPtr Parameter;
+    }
+
+    /// <summary>Zero when the shell did not answer.</summary>
+    [DllImport("shell32.dll")]
+    public static extern UIntPtr SHAppBarMessage(uint message, ref AppBarData data);
+
+    /// <summary>ABM_GETTASKBARPOS: the taskbar's rectangle and the edge it is on, showing or hidden.</summary>
+    public const uint AppBarGetTaskbarPosition = 5;
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     public static extern IntPtr GetWindowLongPtr(IntPtr window, int index);

@@ -19,9 +19,17 @@ namespace ClaudeTracker.App;
 public partial class PopoverWindow : Window
 {
     private readonly UsageViewModel viewModel;
-    /// <summary>The screen corner the popover is pinned to, in pixels: its bottom-right, beside the tray.</summary>
-    private (int Right, int Bottom)? anchor;
+    /// <summary>
+    /// Where the popover is held on the screen, in pixels: by its corner nearest the tray, so
+    /// that it grows away from the taskbar (<see cref="PopoverPlacement.Place"/>).
+    /// </summary>
+    private Pin? pin;
+    /// <summary>The room beside the taskbar on the screen the popover opened on, in pixels.</summary>
+    private ScreenRect room;
+    /// <summary>What was last logged about the taskbar, so a taskbar that moved is logged once.</summary>
+    private string loggedPlace = "";
     private DateTimeOffset hiddenAt = DateTimeOffset.MinValue;
+    private DateTimeOffset pressedAt = DateTimeOffset.MinValue;
     private bool trayPressFoundItOpen;
 
     /// <summary>
@@ -72,7 +80,7 @@ public partial class PopoverWindow : Window
         viewModel.Changed += () => { if (IsVisible) Render(); };
         Deactivated += (_, _) => HidePopover();
         unfocused.Tick += (_, _) => HideIfNeverFocused();
-        // The height follows the content; keep the pinned corner still as it changes.
+        // The height follows the content; keep the held corner still as it changes.
         SourceInitialized += (_, _) =>
         {
             RoundCorners();
@@ -99,10 +107,13 @@ public partial class PopoverWindow : Window
     /// noted now. Judged at the click instead, by how recently it hid, a button held for a
     /// moment reopened the popover it had just closed.
     /// </summary>
-    internal void NoteTrayPress() =>
+    internal void NoteTrayPress()
+    {
+        pressedAt = DateTimeOffset.UtcNow;
         trayPressFoundItOpen = IsVisible || (DateTimeOffset.UtcNow - hiddenAt).TotalMilliseconds < 250;
+    }
 
-    /// <summary>The tray icon was clicked: closes the popover that was open, or shows it above the click.</summary>
+    /// <summary>The tray icon was clicked: closes the popover that was open, or shows it at the click.</summary>
     internal void Toggle()
     {
         // The second test is the fallback for a click that arrives without its press having
@@ -116,38 +127,54 @@ public partial class PopoverWindow : Window
         ShowNearCursor();
     }
 
-    /// <summary>Shows the popover above the click that asked for it (the tray icon).</summary>
+    /// <summary>
+    /// The icon was asked for the popover in one of the ways that are not a click: a double
+    /// click, Enter from the keyboard — which arrives as a double click too — or "Open" in its
+    /// menu. Only the mouse says where the icon is. From the keyboard the pointer can be
+    /// anywhere on any screen, and the popover opened there; so the pointer counts when its
+    /// button went down on the icon just before, and the tray's own place when it did not.
+    /// </summary>
+    internal void Open()
+    {
+        var doubleClick = TimeSpan.FromMilliseconds(WinForms.SystemInformation.DoubleClickTime + 200);
+        if (DateTimeOffset.UtcNow - pressedAt < doubleClick) ShowNearCursor();
+        else ShowBesideTray();
+    }
+
+    /// <summary>Shows the popover beside the taskbar, at the click that asked for it (the tray icon).</summary>
     internal void ShowNearCursor()
     {
         Native.GetCursorPos(out var cursor);
-        ShowAbove(WinForms.Screen.FromPoint(new System.Drawing.Point(cursor.X, cursor.Y)).WorkingArea, cursor.X);
+        ShowAt(cursor);
     }
 
     /// <summary>
-    /// Shows the popover in the corner where the tray is — for a launch, which has no click to
-    /// place it by.
+    /// Shows the popover where the tray is — for a launch, and for anything else that has no
+    /// click to place it by.
     /// </summary>
-    internal void ShowBesideTray()
-    {
-        var area = (WinForms.Screen.PrimaryScreen ?? WinForms.Screen.AllScreens[0]).WorkingArea;
-        ShowAbove(area, area.Right);
-    }
+    internal void ShowBesideTray() => ShowAt(null);
 
-    private void ShowAbove(System.Drawing.Rectangle area, int centerX)
+    private void ShowAt(Native.Point? press)
     {
         const int margin = 12;
-        // Centered on the given point horizontally, kept inside the work area; resting on its
-        // bottom edge, which is the top of the taskbar.
         var handle = new WindowInteropHelper(this).EnsureHandle();
         ApplyPopupSize(); // before the width is measured
         var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
         var widthPixels = (int)Math.Round(Width * scale);
-        var right = Math.Clamp(centerX + widthPixels / 2, area.Left + widthPixels + margin, area.Right - margin);
-        anchor = (right, area.Bottom - margin);
+        // Asked at every opening: the taskbar may have been moved, or told to hide itself.
+        var (edge, beside, along) = Taskbar.Find(press);
+        room = beside;
+        pin = PopoverPlacement.Place(edge, beside, widthPixels, along, margin);
+        var place = $"on the {edge.ToString().ToLowerInvariant()} edge, with room beside it from {beside.Left},{beside.Top} to {beside.Right},{beside.Bottom}";
+        if (place != loggedPlace)
+        {
+            loggedPlace = place;
+            AppLogger.Shared.Info($"popover: the taskbar is {place}");
+        }
         Render();
         ShowActivated = !NeverTakesFocus;
         Show();
-        PinToAnchor();
+        MoveToPin();
         if (!NeverTakesFocus)
         {
             Activate();
@@ -227,18 +254,18 @@ public partial class PopoverWindow : Window
         charts.Leave();
     }
 
-    private void PinToAnchor()
+    private void MoveToPin()
     {
-        if (anchor is not { } pinned || !IsVisible) return;
+        if (pin is not { } held || !IsVisible) return;
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero || !GetWindowRect(handle, out var rect)) return;
-        Native.SetWindowPos(handle, IntPtr.Zero, pinned.Right - (rect.Right - rect.Left), pinned.Bottom - (rect.Bottom - rect.Top), 0, 0,
-                            Native.SwpNoSize | Native.SwpNoZOrder | Native.SwpNoActivate);
+        var (x, y) = held.TopLeft(rect.Right - rect.Left, rect.Bottom - rect.Top);
+        Native.SetWindowPos(handle, IntPtr.Zero, x, y, 0, 0, Native.SwpNoSize | Native.SwpNoZOrder | Native.SwpNoActivate);
     }
 
     /// <summary>
-    /// Keeps the popover's bottom-right corner on its anchor through every move and resize, by
-    /// rewriting the position Windows is about to apply (WM_WINDOWPOSCHANGING).
+    /// Keeps the popover's held corner on its pin through every move and resize, by rewriting
+    /// the position Windows is about to apply (WM_WINDOWPOSCHANGING).
     ///
     /// The height follows the content, and a window grows from its top-left corner: without
     /// this, the rows arriving after "Loading…" pushed the popover's lower half off the bottom
@@ -250,7 +277,7 @@ public partial class PopoverWindow : Window
     {
         const int windowPosChanging = 0x0046;
         const uint noSize = 0x0001, noMove = 0x0002;
-        if (message != windowPosChanging || anchor is not { } pinned) return IntPtr.Zero;
+        if (message != windowPosChanging || pin is not { } held) return IntPtr.Zero;
 
         var position = Marshal.PtrToStructure<WindowPos>(lParam);
         int width, height;
@@ -266,8 +293,7 @@ public partial class PopoverWindow : Window
         {
             return IntPtr.Zero; // neither moving nor resizing
         }
-        position.X = pinned.Right - width;
-        position.Y = pinned.Bottom - height;
+        (position.X, position.Y) = held.TopLeft(width, height);
         position.Flags &= ~noMove;
         Marshal.StructureToPtr(position, lParam, fDeleteOld: false);
         return IntPtr.Zero;
@@ -392,12 +418,13 @@ public partial class PopoverWindow : Window
         var tabs = viewModel.IsAuthenticated && viewModel.ShowChartsTab;
         if (tabs) tabPicker.Show([L.T("Usage"), L.T("Charts")], viewModel.SelectedTab, palette);
         TabBar.Visibility = tabs ? Visibility.Visible : Visibility.Collapsed;
+        ArrangeRows(tabs);
 
         var body = new List<UIElement>();
         if (tabs && viewModel.SelectedTab == 1)
         {
             // The charts draw from the saved history, so they show before the first fetch too.
-            body.Add(charts.Refresh(palette, MaxChartListHeight()));
+            body.Add(charts.Refresh(palette, MaxChartListHeight(), controlsBelow: HeldAtBottom));
         }
         else if (!viewModel.IsAuthenticated)
         {
@@ -425,14 +452,40 @@ public partial class PopoverWindow : Window
     }
 
     /// <summary>
+    /// The popover is held by its bottom: it stands on a taskbar at the bottom, or beside one
+    /// on a side whose tray is at the bottom. Everything above a change of height then moves.
+    /// </summary>
+    private bool HeldAtBottom => pin is { AtBottom: true };
+
+    /// <summary>
+    /// Puts the tab bar on the side of the popover that is held still: above the content when
+    /// the popover hangs from a taskbar at the top, as it does from the Mac's menu bar, and
+    /// under it when the popover stands on a taskbar at the bottom. In the Mac's order there,
+    /// pressing "Charts" took the tab bar away from under the pointer by however much taller
+    /// the charts are. Only the rows change: the elements keep their order, which is the one
+    /// a screen reader and the Tab key follow.
+    /// </summary>
+    private void ArrangeRows(bool tabs)
+    {
+        var below = HeldAtBottom;
+        Grid.SetRow(TabBar, below ? 4 : 2);
+        Grid.SetRow(NoticeText, below ? 2 : 3);
+        Grid.SetRow(Body, below ? 3 : 4);
+        // The gaps of the Mac's order, kept between the same neighbours.
+        TabBar.Margin = new Thickness(0, below ? 17 : 14, 0, 0);
+        Divider.Margin = new Thickness(0, below && tabs ? 14 : 17, 0, 12);
+    }
+
+    /// <summary>
     /// The tallest the charts' scrolling list may be, so the popover never outgrows the screen
     /// (<see cref="ChartLayout.ListHeightLimit"/>). In the popover's own units, which the
     /// popup size setting scales.
     /// </summary>
     private double MaxChartListHeight()
     {
-        var area = (WinForms.Screen.PrimaryScreen ?? WinForms.Screen.AllScreens[0]).WorkingArea;
-        var available = area.Height / VisualTreeHelper.GetDpi(this).DpiScaleY / appliedScale;
+        // The room beside the taskbar on the popover's own screen: less than the work area
+        // when the taskbar hides itself, and the screen's whole height beside one on a side.
+        var available = room.Height / VisualTreeHelper.GetDpi(this).DpiScaleY / appliedScale;
         // The banner and the notice come and go, and both already hold this render's text.
         return ChartLayout.ListHeightLimit(available, HeightOf(UpdateBanner) + HeightOf(NoticeText));
 

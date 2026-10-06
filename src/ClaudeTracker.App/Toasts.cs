@@ -6,7 +6,6 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using ClaudeTracker.Core;
-using WinForms = System.Windows.Forms;
 
 namespace ClaudeTracker.App;
 
@@ -21,10 +20,10 @@ internal enum ToastKind
 }
 
 /// <summary>
-/// Small notifications stacked above the tray: a window reset, a pace warning. They never
-/// take the keyboard focus — showing one must not hide the popover or interrupt typing — so
-/// their text is announced to screen readers instead. The Windows twin of the Mac app's
-/// <c>ToastWindowController</c>, which stacks its own below the menu bar.
+/// Small notifications stacked from the tray's corner, away from the taskbar: a window reset,
+/// a pace warning. They never take the keyboard focus — showing one must not hide the popover
+/// or interrupt typing — so their text is announced to screen readers instead. The Windows
+/// twin of the Mac app's <c>ToastWindowController</c>, which stacks its own below the menu bar.
 /// </summary>
 internal sealed class ToastHost
 {
@@ -36,12 +35,12 @@ internal sealed class ToastHost
     private readonly List<(Guid Id, ToastWindow Window)> entries = [];
 
     /// <summary>
-    /// The popover's rectangle in pixels while it shows. Toasts stack above it: both live in
+    /// The popover's rectangle in pixels while it shows. Toasts stack past it: both live in
     /// the corner beside the tray.
     /// </summary>
     public Func<System.Drawing.Rectangle?>? Obstacle { get; set; }
 
-    /// <summary>Shows a toast above any already showing, and returns its id for <see cref="Dismiss"/>.</summary>
+    /// <summary>Shows a toast past any already showing, and returns its id for <see cref="Dismiss"/>.</summary>
     /// <param name="seconds">How long it stays. Ignored when <paramref name="permanent"/>.</param>
     /// <param name="permanent">Stays until clicked or dismissed.</param>
     public Guid Show(string title, string message, ToastKind kind, double seconds, bool permanent)
@@ -72,20 +71,21 @@ internal sealed class ToastHost
     }
 
     /// <summary>
-    /// Puts every toast in its place: the first rests above the taskbar in the tray's corner,
-    /// or above the popover while that shows, and each later one above the one before.
+    /// Puts every toast in its place: the first beside the taskbar in the tray's corner, or
+    /// past the popover while that shows, and each later one past the one before — upwards
+    /// from a taskbar at the bottom, downwards from one at the top
+    /// (<see cref="PopoverPlacement.Stack"/>).
     /// </summary>
     public void Arrange()
     {
         if (entries.Count == 0) return;
-        var area = (WinForms.Screen.PrimaryScreen ?? WinForms.Screen.AllScreens[0]).WorkingArea;
-        var bottom = area.Bottom - Margin;
-        if (Obstacle?.Invoke() is { } obstacle) bottom = Math.Min(bottom, obstacle.Top - Gap);
-        foreach (var (_, window) in entries)
-        {
-            var height = window.MoveTo(area.Right - Margin, bottom);
-            bottom -= height + Gap;
-        }
+        var sizes = entries.Select(entry => entry.Window.PixelSize).ToList();
+        // Where a popover opened at the tray would be held, on whichever edge the taskbar is.
+        var (edge, room, along) = Taskbar.Find(null);
+        var from = PopoverPlacement.Place(edge, room, sizes[0].Width, along, Margin);
+        ScreenRect? popover = Obstacle?.Invoke() is { } taken ? new ScreenRect(taken.Left, taken.Top, taken.Right, taken.Bottom) : null;
+        var places = PopoverPlacement.Stack(from, sizes, Gap, popover);
+        for (var i = 0; i < entries.Count; i++) entries[i].Window.MoveTo(places[i].X, places[i].Y);
     }
 }
 
@@ -182,17 +182,25 @@ internal sealed class ToastWindow : Window
     }
 
     /// <summary>
-    /// Moves the toast so its bottom-right corner is at the given pixel, and returns its height
-    /// in pixels. Pixels, as for the popover: WPF's own units change meaning between monitors.
+    /// The toast's width and height on the screen. In pixels, as for the popover: WPF's own
+    /// units change meaning between monitors.
     /// </summary>
-    public int MoveTo(int right, int bottom)
+    public (int Width, int Height) PixelSize
+    {
+        get
+        {
+            var handle = new WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero || !Native.GetWindowRect(handle, out var rect)) return (0, 0);
+            return (rect.Right - rect.Left, rect.Bottom - rect.Top);
+        }
+    }
+
+    /// <summary>Moves the toast so its top-left corner is at the given pixel.</summary>
+    public void MoveTo(int left, int top)
     {
         var handle = new WindowInteropHelper(this).Handle;
-        if (handle == IntPtr.Zero || !Native.GetWindowRect(handle, out var rect)) return 0;
-        var (width, height) = (rect.Right - rect.Left, rect.Bottom - rect.Top);
-        Native.SetWindowPos(handle, IntPtr.Zero, right - width, bottom - height, 0, 0,
-                            Native.SwpNoSize | Native.SwpNoZOrder | Native.SwpNoActivate);
-        return height;
+        if (handle == IntPtr.Zero) return;
+        Native.SetWindowPos(handle, IntPtr.Zero, left, top, 0, 0, Native.SwpNoSize | Native.SwpNoZOrder | Native.SwpNoActivate);
     }
 
     /// <summary>

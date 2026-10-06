@@ -24,8 +24,20 @@
         </Style>
     </Window.Resources>
     <Border x:Name="Root" Padding="19" BorderThickness="1">
-        <StackPanel>
-            <DockPanel LastChildFill="False">
+        <!-- Rows, not a stack: the tab bar stands above the content or under it, on the side
+             of the popover that is held still (ArrangeRows). The order written here is the one
+             a screen reader and the Tab key follow, whichever way the rows are arranged. -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <DockPanel Grid.Row="0" LastChildFill="False">
                 <TextBlock x:Name="HeaderTitle" DockPanel.Dock="Left" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
                 <Border x:Name="Badge" DockPanel.Dock="Right" CornerRadius="9" Padding="7,2" VerticalAlignment="Center">
                     <TextBlock x:Name="BadgeText" FontSize="11" FontWeight="SemiBold" />
@@ -35,7 +47,7 @@
                         FontSize="12" FontWeight="SemiBold" Margin="0,0,2,0" VerticalAlignment="Center" MaxWidth="150" />
             </DockPanel>
             <!-- While a newer release is known: what it is, and the one thing to do about it. -->
-            <Border x:Name="UpdateBanner" CornerRadius="8" Padding="10,6" Margin="0,12,0,0" Visibility="Collapsed">
+            <Border x:Name="UpdateBanner" Grid.Row="1" CornerRadius="8" Padding="10,6" Margin="0,12,0,0" Visibility="Collapsed">
                 <DockPanel LastChildFill="True">
                     <Button x:Name="UpdateBannerAction" DockPanel.Dock="Right" FontSize="11" Padding="10,3" Margin="8,0,0,0" VerticalAlignment="Center" />
                     <TextBlock x:Name="UpdateBannerProgress" DockPanel.Dock="Right" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center" />
@@ -43,17 +55,18 @@
                     <TextBlock x:Name="UpdateBannerText" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 </DockPanel>
             </Border>
-            <!-- "Usage" | "Charts", while signed in and with the Charts tab switched on. -->
-            <ContentControl x:Name="TabBar" Margin="0,14,0,0" Focusable="False" />
+            <!-- "Usage" | "Charts", while signed in and with the Charts tab switched on. Its
+                 row, and the rows of the two that follow, are set in ArrangeRows. -->
+            <ContentControl x:Name="TabBar" Grid.Row="2" Margin="0,14,0,0" Focusable="False" />
             <!-- A passing remark from the app ("That account was already here…"). Outside the
                  body, so the body can hold the Charts tab and nothing else. -->
-            <TextBlock x:Name="NoticeText" FontSize="12" TextWrapping="Wrap" Margin="0,17,0,-5" Visibility="Collapsed" />
-            <StackPanel x:Name="Body" Margin="0,17,0,0" />
-            <Border x:Name="Divider" Height="1" Margin="0,17,0,12" />
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,-3,-6,-3">
+            <TextBlock x:Name="NoticeText" Grid.Row="3" FontSize="12" TextWrapping="Wrap" Margin="0,17,0,-5" Visibility="Collapsed" />
+            <StackPanel x:Name="Body" Grid.Row="4" Margin="0,17,0,0" />
+            <Border x:Name="Divider" Grid.Row="5" Height="1" Margin="0,17,0,12" />
+            <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,-3,-6,-3">
                 <Button x:Name="SettingsLink" Style="{StaticResource Link}" FontSize="12" Margin="0,0,4,0" />
                 <Button x:Name="QuitLink" Style="{StaticResource Link}" FontSize="12" />
             </StackPanel>
-        </StackPanel>
+        </Grid>
     </Border>
 </Window>
