@@ -1013,4 +1013,112 @@ public class WindowsOnlyTests
         Assert.NotNull(update);
         Assert.False(Updates.IsWebLink(update!.ReleaseUrl));
     }
+
+    // MARK: - Where the popover goes (CT-009)
+
+    // The Mac app has no twin for these: the system places its popover under the menu bar,
+    // which is always at the top. Windows' taskbar can be on any edge, and can hide itself.
+
+    /// <summary>The screen these were worked out on, and the popover's width and gap there.</summary>
+    private static readonly ScreenRect WholeScreen = new(0, 0, 2560, 1440);
+    private const int PopoverWidth = 340, Margin = 12;
+
+    [Theory]
+    // the taskbar's edge and thickness -> the room left beside it: left, top, right, bottom
+    [InlineData(ScreenEdge.Bottom, 44, 0, 0, 2560, 1396)]
+    [InlineData(ScreenEdge.Top, 44, 0, 44, 2560, 1440)]
+    [InlineData(ScreenEdge.Left, 62, 62, 0, 2560, 1440)]
+    [InlineData(ScreenEdge.Right, 62, 0, 0, 2498, 1440)]
+    public void ATaskbarThatHidesItselfStillHasItsStrip(ScreenEdge edge, int thickness, int left, int top, int right, int bottom)
+    {
+        // Windows gives the whole screen as the work area then, and no edge is short: the
+        // popover stood 32 pixels into the strip the taskbar comes back into.
+        var room = new ScreenRect(left, top, right, bottom);
+        Assert.Null(PopoverPlacement.EdgeOf(WholeScreen, WholeScreen));
+        Assert.Equal(room, PopoverPlacement.Room(WholeScreen, WholeScreen, edge, thickness));
+        // One that is always showing is out of the work area already: it is on the edge the
+        // work area is short on, and its strip is not taken off twice.
+        Assert.Equal(edge, PopoverPlacement.EdgeOf(WholeScreen, room));
+        Assert.Equal(room, PopoverPlacement.Room(WholeScreen, room, edge, thickness));
+        // Windows would not say how thick it is: the work area is all there is to go by.
+        Assert.Equal(WholeScreen, PopoverPlacement.Room(WholeScreen, WholeScreen, edge, 0));
+    }
+
+    [Theory]
+    // the press, across the screen -> the popover's right edge
+    [InlineData(2221, 2391)]    // centred on the press
+    [InlineData(2555, 2548)]    // at the end of the taskbar: kept inside, a gap from the screen's edge
+    [InlineData(3, 352)]        // and at its start
+    public void AboveOrUnderTheTaskbarThePopoverIsCentredOnThePress(int press, int right)
+    {
+        var above = PopoverPlacement.Place(ScreenEdge.Bottom, new ScreenRect(0, 0, 2560, 1396), PopoverWidth, press, Margin);
+        Assert.Equal(new Pin(right, 1384, AtRight: true, AtBottom: true), above);
+        // Under a taskbar at the top it is held by its top, and grows downwards.
+        var under = PopoverPlacement.Place(ScreenEdge.Top, new ScreenRect(0, 44, 2560, 1440), PopoverWidth, press, Margin);
+        Assert.Equal(new Pin(right, 56, AtRight: true, AtBottom: false), under);
+    }
+
+    [Theory]
+    // the press, down the screen -> held at the bottom?
+    [InlineData(1400, true)]    // the tray at the bottom end of the bar, where Windows 10 has it
+    [InlineData(40, false)]     // and should it be at the top end
+    public void BesideATaskbarOnASideThePopoverStandsInTheCornerAtTheTraysEnd(int press, bool atBottom)
+    {
+        var y = atBottom ? 1428 : 12;
+        Assert.Equal(new Pin(74, y, AtRight: false, atBottom),
+                     PopoverPlacement.Place(ScreenEdge.Left, new ScreenRect(62, 0, 2560, 1440), PopoverWidth, press, Margin));
+        Assert.Equal(new Pin(2486, y, AtRight: true, atBottom),
+                     PopoverPlacement.Place(ScreenEdge.Right, new ScreenRect(0, 0, 2498, 1440), PopoverWidth, press, Margin));
+    }
+
+    [Fact]
+    public void WithoutAPressThePopoverStandsFlushInTheTraysCorner()
+    {
+        // A launch and the keyboard have no press to open at. The tray's rectangle says which
+        // end of the bar it is at, and the popover goes flush into that corner — not onto the
+        // middle of the notification area, which is as wide as the icons a user keeps in it.
+        var beside = new ScreenRect(0, 0, 2560, 1396);
+        var along = PopoverPlacement.TrayEnd(ScreenEdge.Bottom, WholeScreen, new ScreenRect(2049, 1396, 2560, 1440));
+        Assert.Equal(2548, PopoverPlacement.Place(ScreenEdge.Bottom, beside, PopoverWidth, along, Margin).X);
+        // Laid out from right to left, Windows has the tray at the left end.
+        along = PopoverPlacement.TrayEnd(ScreenEdge.Bottom, WholeScreen, new ScreenRect(0, 1396, 511, 1440));
+        Assert.Equal(352, PopoverPlacement.Place(ScreenEdge.Bottom, beside, PopoverWidth, along, Margin).X);
+        // On a side it is the end the tray is at, whichever that is.
+        Assert.Equal(1440, PopoverPlacement.TrayEnd(ScreenEdge.Left, WholeScreen, new ScreenRect(0, 1100, 62, 1440)));
+        Assert.Equal(0, PopoverPlacement.TrayEnd(ScreenEdge.Left, WholeScreen, new ScreenRect(0, 0, 62, 340)));
+        // Windows would not say where the tray is: the far end, where it has always been.
+        Assert.Equal(2560, PopoverPlacement.TrayEnd(ScreenEdge.Top, WholeScreen, null));
+        Assert.Equal(1440, PopoverPlacement.TrayEnd(ScreenEdge.Right, WholeScreen, null));
+    }
+
+    [Fact]
+    public void TheHeldCornerStaysWhereItIsWhenThePopoverGrows()
+    {
+        // Usage was 354 pixels tall on this screen and Charts is taller: above a taskbar at
+        // the bottom the popover's bottom edge must not move, under one at the top its top.
+        var above = new Pin(2391, 1384, AtRight: true, AtBottom: true);
+        Assert.Equal((2051, 1030), above.TopLeft(340, 354));
+        Assert.Equal((2051, 484), above.TopLeft(340, 900));
+        var under = new Pin(2391, 56, AtRight: true, AtBottom: false);
+        Assert.Equal((2051, 56), under.TopLeft(340, 354));
+        Assert.Equal((2051, 56), under.TopLeft(340, 900));
+        // Beside a taskbar on the left it is held by its left side: a larger popup size grows to the right.
+        Assert.Equal((74, 1074), new Pin(74, 1428, AtRight: false, AtBottom: true).TopLeft(510, 354));
+    }
+
+    [Fact]
+    public void ToastsStackAwayFromTheTaskbarAndPastThePopover()
+    {
+        var toasts = new[] { (Width: 320, Height: 80), (Width: 320, Height: 100) };
+        var above = new Pin(2548, 1384, AtRight: true, AtBottom: true);
+        Assert.Equal(new[] { (2228, 1304), (2228, 1196) }, PopoverPlacement.Stack(above, toasts, gap: 8));
+        // The popover is in the same corner: the first toast stands on it.
+        Assert.Equal(new[] { (2228, 942), (2228, 834) },
+                     PopoverPlacement.Stack(above, toasts, gap: 8, taken: new ScreenRect(2051, 1030, 2391, 1384)));
+
+        var under = new Pin(2548, 56, AtRight: true, AtBottom: false);
+        Assert.Equal(new[] { (2228, 56), (2228, 144) }, PopoverPlacement.Stack(under, toasts, gap: 8));
+        Assert.Equal(new[] { (2228, 418), (2228, 506) },
+                     PopoverPlacement.Stack(under, toasts, gap: 8, taken: new ScreenRect(2051, 56, 2391, 410)));
+    }
 }
