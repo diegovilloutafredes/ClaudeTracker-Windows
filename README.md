@@ -57,10 +57,9 @@ out to keep the percentage in view. Opening the app again shows the popover eith
 
 ## How it relates to the macOS app
 
-The two apps are separate native codebases that implement one product. A small workspace
-repo ([claudetracker-workspace](https://github.com/diegovilloutafredes/claudetracker-workspace))
-keeps them in step: shared specs, a feature parity matrix, shared test vectors, and
-checks that the constants in both codebases agree.
+The two apps are separate native codebases that implement one product. A small private
+workspace keeps them in step: shared specs, a feature parity matrix, shared test vectors,
+and checks that the constants in both codebases agree.
 
 ## Disclaimer
 
