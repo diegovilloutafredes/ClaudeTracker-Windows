@@ -18,7 +18,7 @@ Settings window with several accounts (CT-002, done), one row per account (CT-00
 alerts for resets and pace (CT-004, done), a setup with signed updates and launch at
 sign-in (CT-005, done), the Charts tab (CT-006, done), and a pass in Spanish and as a
 screen reader is handed it (CT-007, done) — specs in the workspace's `shared/features/`.
-Nothing is released yet: the repo is not on GitHub. The app has been run signed in
+Nothing is released yet; the repo has been on GitHub since 2026-10-06. The app has been run signed in
 (2026-10-05, through Google with a passkey), from a build folder and installed by its
 setup: sign-in is detected, usage rows appear, the session survives a relaunch, an upgrade
 and an uninstall, and polling recovers by itself after the network drops. What is still
@@ -360,8 +360,9 @@ section), and `Start-Process -Wait` on a setup waits for the app the setup start
 
 ## Releases
 
-Nothing has been released yet, and the two steps below that need GitHub or the Mac have
-never run. The script they share with a build by hand has.
+Nothing has been released yet. The Build workflow has run on GitHub (green at its first
+run, 2026-10-06); the two steps below that need a tag or the Mac — the Release workflow
+and the publish script — have never run. The script they share with a build by hand has.
 
 ```bash
 # 1. Bump <Version> in Directory.Build.props, commit, tag the same number, push both.
