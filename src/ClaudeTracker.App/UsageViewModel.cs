@@ -16,6 +16,10 @@ internal sealed class AccountState
     public AccountInfo? AccountInfo;
     /// <summary>When <c>/api/account</c> was last requested; throttles the retry while it is missing.</summary>
     public DateTimeOffset? AccountInfoAttemptedAt;
+    /// <summary>The plan's subscription details (CT-010): null until first read, kept through a failed read.</summary>
+    public SubscriptionDetails? Subscription;
+    /// <summary>When <c>subscription_details</c> was last requested; <see cref="Billing.SubscriptionRefreshDue"/> reads it.</summary>
+    public DateTimeOffset? SubscriptionAttemptedAt;
     /// <summary>The parsed <c>resets_at</c> per window key; <see cref="Resets.DetectResets"/> reads and rewrites it.</summary>
     public Dictionary<string, DateTimeOffset> PreviousResetsAt = new(StringComparer.Ordinal);
     /// <summary>Rolling 5-minute utilization history per window key, used by <see cref="PaceMath.ComputePace"/>.</summary>
@@ -345,6 +349,12 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
 
     /// <summary>The active account's plan badge: the live value, else the roster's saved copy.</summary>
     public string? ActiveSubscriptionLabel => ActiveState?.AccountInfo?.SubscriptionLabel ?? ActiveAccount?.SubscriptionLabel;
+
+    /// <summary>
+    /// The popover footer's line about the active account's plan (CT-010): "Renews Nov 19", or
+    /// "Ends Nov 19". Null until the subscription details are read, and when no date is ahead.
+    /// </summary>
+    public string? ActivePlanLine => Billing.FooterLine(ActiveState?.Subscription, DateTimeOffset.UtcNow, culture: TimeText.DisplayCulture());
 
     /// <summary>
     /// True when an account is active and its session is healthy. False when no accounts exist,
@@ -729,6 +739,49 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         _ = RefreshAccountInfoAsync(id, svc, CancellationToken.None);
     }
 
+    /// <summary>
+    /// Reads the plan's subscription details after a successful poll when they are due (CT-010):
+    /// first after the session starts, then every six hours. Beside the poll, never before it:
+    /// the first usage poll is not held up, and a failure here is only logged — the renewal date
+    /// is optional, and nothing else depends on it.
+    /// </summary>
+    private void RefreshSubscriptionIfDue(Guid id, ClaudeApiClient svc)
+    {
+        var state = State(id);
+        if (!Billing.SubscriptionRefreshDue(state.SubscriptionAttemptedAt, DateTimeOffset.UtcNow)) return;
+        state.SubscriptionAttemptedAt = DateTimeOffset.UtcNow;
+        _ = RefreshSubscriptionAsync(id, svc);
+    }
+
+    private async Task RefreshSubscriptionAsync(Guid id, ClaudeApiClient svc)
+    {
+        try
+        {
+            var details = await svc.FetchSubscriptionDetailsAsync(CancellationToken.None);
+            // The account was removed meanwhile: its state must not come back.
+            if (!states.TryGetValue(id, out var state)) return;
+            var signature = UsageSignatures.SubscriptionSignature(details);
+            if (state.Subscription is not { } old || UsageSignatures.SubscriptionSignature(old) != signature)
+            {
+                AppLogger.Shared.Info($"subscription: {signature}");
+            }
+            state.Subscription = details;
+            Notify();
+        }
+        catch (Exception e)
+        {
+            // Everything is caught: nothing awaits this. A read cut short because its client was
+            // closed (an account switch) is not a failure, and is due again at that account's
+            // next poll.
+            if (!ReferenceEquals(client, svc))
+            {
+                if (states.TryGetValue(id, out var state)) state.SubscriptionAttemptedAt = null;
+                return;
+            }
+            AppLogger.Shared.Error($"subscription details fetch failed: {e.Message}");
+        }
+    }
+
     // MARK: - Polling
 
     /// <summary>Cancels any pending poll and starts a fresh adaptive polling cycle for the active account.</summary>
@@ -778,6 +831,7 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
             state.SessionExpired = false;
             if (svc.CachedOrgName is { } orgName) ApplyOrgNameToRoster(id, orgName);
             RetryAccountInfoIfMissing(id, svc);
+            RefreshSubscriptionIfDue(id, svc);
             shouldSchedule = true;
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

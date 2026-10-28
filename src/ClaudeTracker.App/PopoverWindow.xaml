@@ -63,10 +63,20 @@
             <TextBlock x:Name="NoticeText" Grid.Row="3" FontSize="12" TextWrapping="Wrap" Margin="0,17,0,-5" Visibility="Collapsed" />
             <StackPanel x:Name="Body" Grid.Row="4" Margin="0,17,0,0" />
             <Border x:Name="Divider" Grid.Row="5" Height="1" Margin="0,17,0,12" />
-            <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,-3,-6,-3">
-                <Button x:Name="SettingsLink" Style="{StaticResource Link}" FontSize="12" Margin="0,0,4,0" />
-                <Button x:Name="QuitLink" Style="{StaticResource Link}" FontSize="12" />
-            </StackPanel>
+            <!-- The plan's next billing date on the left (CT-010), the two links on the right.
+                 The line is written first: a screen reader and the Tab key follow the order of
+                 the children, and it is cut short rather than pushing the links. -->
+            <Grid Grid.Row="6" Margin="0,-3,-6,-3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="PlanLine" Grid.Column="0" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="SettingsLink" Style="{StaticResource Link}" FontSize="12" Margin="0,0,4,0" />
+                    <Button x:Name="QuitLink" Style="{StaticResource Link}" FontSize="12" />
+                </StackPanel>
+            </Grid>
         </Grid>
     </Border>
 </Window>

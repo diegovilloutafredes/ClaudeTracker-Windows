@@ -430,6 +430,20 @@ internal sealed class ClaudeApiClient(Account account)
         }
     }
 
+    /// <summary>
+    /// Fetches the organisation's subscription details, for the plan's next billing date (CT-010).
+    /// Optional: a member who may not see the organisation's billing is answered 403, and a
+    /// plan without a subscription may be answered 404. Neither says anything about the session
+    /// or the organisation, so this call's statuses skip <see cref="MapFailure"/>'s recovery: the
+    /// page is not reloaded and the organisation stays cached.
+    /// </summary>
+    public async Task<SubscriptionDetails> FetchSubscriptionDetailsAsync(CancellationToken cancellation)
+    {
+        await EnsureReadyAsync(cancellation);
+        var orgId = await ResolveOrgIdAsync();
+        return SubscriptionDetails.Parse(await FetchJsonStringAsync($"/api/organizations/{orgId}/subscription_details", statusIsSessionSignal: false));
+    }
+
     private async Task<string> ResolveOrgIdAsync()
     {
         if (cachedOrgId is { } cached) return cached;
@@ -448,8 +462,11 @@ internal sealed class ClaudeApiClient(Account account)
     /// through the DevTools <c>Runtime.evaluate</c> call because it awaits the promise and
     /// reports the thrown error; WebView2's own script calls return <c>{}</c> for a promise.
     /// The in-page 30 s abort is the timeout that matters: nothing here can cancel a fetch.
+    /// With <paramref name="statusIsSessionSignal"/> false, an HTTP status is only an error
+    /// (<see cref="FetchSubscriptionDetailsAsync"/>); a challenge is about the page, and keeps
+    /// its recovery either way.
     /// </summary>
-    private async Task<string> FetchJsonStringAsync(string path)
+    private async Task<string> FetchJsonStringAsync(string path, bool statusIsSessionSignal = true)
     {
         var webView = await WebViewAsync();
         if (SimulateChallengeOnce)
@@ -484,7 +501,12 @@ internal sealed class ClaudeApiClient(Account account)
         var root = document.RootElement;
         if (root.TryGetProperty("exceptionDetails", out var details))
         {
-            throw MapFailure(ThrownMessage(details));
+            var message = ThrownMessage(details);
+            if (!statusIsSessionSignal && FetchFailures.Classify(message) is not (FetchFailure.Challenge or FetchFailure.Network))
+            {
+                throw new ApiException(ApiErrorKind.HttpError, message);
+            }
+            throw MapFailure(message);
         }
         if (root.TryGetProperty("result", out var result) && result.TryGetProperty("value", out var value)
             && value.ValueKind == JsonValueKind.String)

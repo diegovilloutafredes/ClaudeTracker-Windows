@@ -361,6 +361,11 @@ public partial class PopoverWindow : Window
         {
             link.Foreground = link.IsMouseOver ? Primary : Secondary;
         }
+        // Set or collapsed at every render: the element is kept, and remembers the last one.
+        var planLine = viewModel.ActivePlanLine;
+        PlanLine.Text = planLine ?? "";
+        PlanLine.Foreground = Secondary;
+        PlanLine.Visibility = planLine is null ? Visibility.Collapsed : Visibility.Visible;
 
         // With one account the header is the plan badge alone, as it always was. With more,
         // the active account's name stands beside it and opens the list.
