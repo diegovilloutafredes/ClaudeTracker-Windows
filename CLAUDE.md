@@ -17,8 +17,9 @@ icon, popover with usage rows and pace, sign-in window, polling (spec CT-001, do
 Settings window with several accounts (CT-002, done), one row per account (CT-003),
 alerts for resets and pace (CT-004, done), a setup with signed updates and launch at
 sign-in (CT-005, done), the Charts tab (CT-006, done), a pass in Spanish and as a
-screen reader is handed it (CT-007, done), and a popover that stands beside the taskbar
-on whichever edge it is (CT-009) — specs in the workspace's `shared/features/`.
+screen reader is handed it (CT-007, done), a popover that stands beside the taskbar
+on whichever edge it is (CT-009), and the plan's next billing date in its footer (CT-010) —
+specs in the workspace's `shared/features/`.
 Nothing is released yet; the repo has been on GitHub since 2026-10-06. The app has been run signed in
 (2026-10-05, through Google with a passkey), from a build folder and installed by its
 setup: sign-in is detected, usage rows appear, the session survives a relaunch, an upgrade
@@ -45,6 +46,7 @@ ClaudeTracker.slnx
 Directory.Build.props                 ← the version (one line), nullable, warnings as errors
 src/ClaudeTracker.Core/               ← logic, API decoders, storage. net10.0, no UI, no Windows APIs
   ApiModels.cs                        ← claude.ai payload types and their fail-soft decoding; log signatures
+  Billing.cs                          ← the plan's next billing date: which one the footer shows, its words, when to read it again
   UsageMath.cs                        ← urgency colours, pace, polling tiers, reset detection, time text
   RowText.cs                          ← the words of the pace lines and of money; the popup size range
   Alerts.cs                           ← the words of the two alerts, which windows raise them, the sliders' ranges
@@ -232,6 +234,14 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
 - **Sign-in** uses its own visible web view on the account's profile. The window polls the
   profile's cookies once a second and reports a `sessionKey` that differs from the one
   present when it opened. Fetches for that account wait while it is open.
+- **The plan's next billing date is read beside the poll, never in its way** (CT-010). After
+  a poll that worked, `RefreshSubscriptionIfDue` reads `subscription_details` when
+  `Billing.SubscriptionRefreshDue` says so — first in a session, then every six hours,
+  worked or not — and the footer shows `ActivePlanLine` ("Renews Nov 19"). That call's HTTP
+  statuses are only errors (`statusIsSessionSignal: false`): a member refused the endpoint
+  must not reload the page or make the usage call find its organisation again. Seen with a
+  throwaway build that asked a path that does not exist: the 404 was logged, and neither
+  recovery ran.
 - **A poll must always schedule the next one.** `FetchUsageAsync` catches everything for
   that reason; an exception escaping it would end polling without a trace. The same goes
   for what leads up to the first poll: `RefreshAccountInfoAsync` is the first call to
