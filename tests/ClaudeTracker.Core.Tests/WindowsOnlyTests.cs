@@ -1121,4 +1121,28 @@ public class WindowsOnlyTests
         Assert.Equal(new[] { (2228, 418), (2228, 506) },
                      PopoverPlacement.Stack(under, toasts, gap: 8, taken: new ScreenRect(2051, 56, 2391, 410)));
     }
+
+    // MARK: - Next billing date (CT-010)
+
+    [Fact]
+    public void TheFooterSaysWhenThePlanRenewsOrEnds()
+    {
+        // The Mac words the line in its view; here it is a pure function, so the words are tested.
+        var chile = TimeZoneInfo.CreateCustomTimeZone("test-3", TimeSpan.FromHours(-3), "test", "test");
+        var english = new System.Globalization.CultureInfo("en-US");
+        var now = new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
+        var renewing = new SubscriptionDetails("active", "monthly", "2026-11-20T01:12:40Z", null);
+        Assert.Equal("Renews Nov 19", Billing.FooterLine(renewing, now, chile, english));
+        Assert.Equal("Ends Nov 24", Billing.FooterLine(renewing with { PlanEndingAt = "2026-11-25T01:00:00Z" }, now, chile, english));
+        Assert.Null(Billing.FooterLine(null, now, chile, english));
+    }
+
+    [Fact]
+    public void ABillingDateInSpanishPutsTheDayFirst()
+    {
+        var chile = new System.Globalization.CultureInfo("es-CL");
+        var now = new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
+        Assert.Equal("20 nov", Billing.PlanDateText(new DateTimeOffset(2026, 11, 20, 12, 0, 0, TimeSpan.Zero), now, TimeZoneInfo.Utc, chile));
+        Assert.Equal("5 ene 2027", Billing.PlanDateText(new DateTimeOffset(2027, 1, 5, 12, 0, 0, TimeSpan.Zero), now, TimeZoneInfo.Utc, chile));
+    }
 }

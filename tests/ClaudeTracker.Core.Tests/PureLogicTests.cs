@@ -990,4 +990,58 @@ public class PureLogicTests
         Assert.True(TimeText.Prefers24HourClock(CultureInfo.GetCultureInfo("de-DE")));   // h23
         Assert.True(TimeText.Prefers24HourClock(CultureInfo.GetCultureInfo("fr-FR")));   // h23
     }
+
+    // MARK: - Next billing date (CT-010)
+
+    /// <summary>The fixture's next charge, 2026-11-20T01:12:40Z: past midnight UTC, the day before in UTC−3.</summary>
+    private static readonly DateTimeOffset NextCharge = DateTimeOffset.FromUnixTimeSeconds(1_795_137_160);
+
+    private static TimeZoneInfo HoursFromGmt(int hours) =>
+        TimeZoneInfo.CreateCustomTimeZone($"test{hours}", TimeSpan.FromHours(hours), "test", "test");
+
+    [Fact]
+    public void PlanDateTextIsTheReadersLocalDay()
+    {
+        var now = NextCharge.AddDays(-10);
+        Assert.Equal("Nov 19", Billing.PlanDateText(NextCharge, now, HoursFromGmt(-3), EnUs));
+        Assert.Equal("Nov 20", Billing.PlanDateText(NextCharge, now, HoursFromGmt(0), EnUs));
+    }
+
+    [Fact]
+    public void PlanDateTextAddsTheYearWhenItIsNotThisYears()
+    {
+        var nextYear = DateTimeOffset.FromUnixTimeSeconds(1_799_150_400);  // 2027-01-05T12:00:00Z
+        Assert.Equal("Jan 5, 2027", Billing.PlanDateText(nextYear, NextCharge, HoursFromGmt(0), EnUs));
+    }
+
+    [Fact]
+    public void UpcomingPlanEventPrefersTheEndOfAPlanThatWillNotRenew()
+    {
+        var now = NextCharge.AddDays(-10);
+        var renewing = new SubscriptionDetails("active", "monthly", "2026-11-20T01:12:40Z", null);
+        Assert.Equal(new PlanEvent(PlanEventKind.Renews, NextCharge), Billing.UpcomingPlanEvent(renewing, now));
+        var ending = renewing with { PlanEndingAt = "2026-11-25T00:00:00Z" };
+        Assert.Equal(new PlanEvent(PlanEventKind.Ends, DateTimeOffset.FromUnixTimeSeconds(1_795_564_800)), Billing.UpcomingPlanEvent(ending, now));
+    }
+
+    [Fact]
+    public void UpcomingPlanEventShowsNothingThatHasPassed()
+    {
+        var renewing = new SubscriptionDetails("active", "monthly", "2026-11-20T01:12:40Z", null);
+        Assert.Null(Billing.UpcomingPlanEvent(renewing, NextCharge));
+        var ended = new SubscriptionDetails("canceled", "monthly", null, "2026-11-01T00:00:00Z");
+        Assert.Null(Billing.UpcomingPlanEvent(ended, NextCharge));
+        Assert.Null(Billing.UpcomingPlanEvent(null, NextCharge));
+        var unreadable = new SubscriptionDetails(null, null, "not a date", null);
+        Assert.Null(Billing.UpcomingPlanEvent(unreadable, NextCharge.AddDays(-1)));
+    }
+
+    [Fact]
+    public void SubscriptionRefreshIsDueFirstAndEverySixHours()
+    {
+        var now = NextCharge;
+        Assert.True(Billing.SubscriptionRefreshDue(null, now));
+        Assert.False(Billing.SubscriptionRefreshDue(now, now.AddSeconds(6 * 3600 - 1)));
+        Assert.True(Billing.SubscriptionRefreshDue(now, now.AddSeconds(6 * 3600)));
+    }
 }

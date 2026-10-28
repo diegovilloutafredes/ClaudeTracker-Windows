@@ -1,0 +1,33 @@
+{
+  "plan_ending_before": null,
+  "plan_ending_at": null,
+  "next_charge_date": "2026-11-20",
+  "next_charge_at": "2026-11-20T01:12:40Z",
+  "payment_method": {
+    "brand": "visa",
+    "country": "US",
+    "last4": "4242",
+    "type": "card"
+  },
+  "status": "active",
+  "billing_interval": "monthly",
+  "has_schedule": false,
+  "has_discounts": false,
+  "team_promo_ends_at": null,
+  "team_promo_discount_amount_off": null,
+  "team_promo_discount_percent_off": null,
+  "team_promo_discount_currency": null,
+  "gift_details": null,
+  "payment_paused_until": null,
+  "scheduled_downgrade": null,
+  "trial_end_ts": null,
+  "seat_tier_quantities": null,
+  "manual_pause_scheduled_at": null,
+  "subscription_details_url": null,
+  "subscription_payment_type": null,
+  "test_clock_frozen_time": null,
+  "eligible_for_past_due_cycle_reset": null,
+  "payment_auth_hosted_invoice_url": null,
+  "currency": "USD",
+  "pending_purchase": null
+}

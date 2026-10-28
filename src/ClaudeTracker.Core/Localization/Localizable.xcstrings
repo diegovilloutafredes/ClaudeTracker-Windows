@@ -466,6 +466,17 @@
         }
       }
     },
+    "Ends %@": {
+      "comment": "Popover footer: the date a cancelled plan runs out (CT-010)",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termina el %@"
+          }
+        }
+      }
+    },
     "Extra Usage": {
       "comment": "Extra pay-as-you-go usage section in popover",
       "localizations": {
@@ -843,6 +854,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Renombrar cuenta"
+          }
+        }
+      }
+    },
+    "Renews %@": {
+      "comment": "Popover footer: the plan's next billing date (CT-010)",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se renueva el %@"
           }
         }
       }

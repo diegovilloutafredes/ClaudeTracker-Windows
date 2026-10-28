@@ -624,6 +624,37 @@ public class ApiFixtureTests
         Assert.Null(r.Limits);
     }
 
+    // MARK: - subscription_details (CT-010)
+
+    [Fact]
+    public void SubscriptionPayloadGivesTheNextCharge()
+    {
+        var details = SubscriptionDetails.Parse(Fixture.Text("live-subscription-details-2026-10-28.json"));
+        Assert.Equal("active", details.Status);
+        Assert.Equal("monthly", details.BillingInterval);
+        Assert.Equal("2026-11-20T01:12:40Z", details.NextChargeAt);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1_795_137_160), details.NextChargeAtDate);
+        Assert.Null(details.PlanEndingAt);
+        Assert.Equal("status=active interval=monthly next=2026-11-20T01:12:40Z ends=nil", UsageSignatures.SubscriptionSignature(details));
+    }
+
+    [Fact]
+    public void SubscriptionFieldsOfTheWrongTypeReadAsNil()
+    {
+        var json = """
+        {"status": 1, "billing_interval": null, "next_charge_at": false, "plan_ending_at": "2026-12-01T00:00:00Z"}
+        """;
+        var details = SubscriptionDetails.Parse(json);
+        Assert.Null(details.Status);
+        Assert.Null(details.BillingInterval);
+        Assert.Null(details.NextChargeAt);
+        Assert.Equal("2026-12-01T00:00:00Z", details.PlanEndingAt);
+    }
+
+    [Fact]
+    public void SubscriptionPayloadThatIsNotAnObjectFailsToDecode() =>
+        Assert.Throws<ApiDecodeException>(() => SubscriptionDetails.Parse("[]"));
+
     // MARK: - AccountInfo
 
     [Fact]

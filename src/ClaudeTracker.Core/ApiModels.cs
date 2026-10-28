@@ -4,8 +4,8 @@ using System.Text.Json;
 namespace ClaudeTracker.Core;
 
 // Types for the claude.ai API payloads (/api/organizations/{id}/usage, /api/account,
-// /api/organizations), plus the tracked-window enumeration and the log signatures derived
-// from them. A port of the macOS app's APIModels.swift: the decoding rules below match its
+// /api/organizations, /api/organizations/{id}/subscription_details), plus the tracked-window
+// enumeration and the log signatures derived from them. A port of the macOS app's APIModels.swift: the decoding rules below match its
 // Codable implementations field for field, and the same fixture files test both.
 
 /// <summary>A payload that cannot be decoded at all (the Mac app's <c>DecodingError</c>).</summary>
@@ -525,6 +525,38 @@ public sealed record AccountInfo(string? FullName, string EmailAddress, IReadOnl
     }
 }
 
+/// <summary>
+/// The plan's billing state, from <c>/api/organizations/{id}/subscription_details</c> (CT-010).
+/// Every field is lenient: a missing, null or wrong-typed value reads as null. The payment
+/// method in the same payload is never read.
+/// </summary>
+/// <param name="Status">"active" seen. Logged, not interpreted.</param>
+/// <param name="BillingInterval">"monthly" seen. Logged only.</param>
+/// <param name="NextChargeAt">ISO 8601 time of the next charge, e.g. <c>2026-11-20T01:12:40Z</c>.</param>
+/// <param name="PlanEndingAt">When a plan that will not renew runs out. Null on an active plan; taken to be in <paramref name="NextChargeAt"/>'s format.</param>
+public sealed record SubscriptionDetails(string? Status, string? BillingInterval, string? NextChargeAt, string? PlanEndingAt)
+{
+    public DateTimeOffset? NextChargeAtDate => IsoDate.Parse(NextChargeAt);
+
+    public DateTimeOffset? PlanEndingAtDate => IsoDate.Parse(PlanEndingAt);
+
+    /// <exception cref="ApiDecodeException">The payload is not a JSON object.</exception>
+    public static SubscriptionDetails Parse(string json)
+    {
+        JsonDocument document;
+        try { document = JsonDocument.Parse(json); }
+        catch (JsonException e) { throw new ApiDecodeException("subscription payload is not valid JSON", e); }
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) throw new ApiDecodeException("subscription payload is not a JSON object");
+            return new SubscriptionDetails(
+                Lenient.String(root, "status"), Lenient.String(root, "billing_interval"),
+                Lenient.String(root, "next_charge_at"), Lenient.String(root, "plan_ending_at"));
+        }
+    }
+}
+
 /// <summary>Log signatures for API fields that are decoded to be learned from, not displayed.</summary>
 public static class UsageSignatures
 {
@@ -591,6 +623,14 @@ public static class UsageSignatures
             .Where(row => row.Key is not null)
             .Select(row => $"{row.Key}:{(row.Percent is { } p ? p.ToString("F0", CultureInfo.InvariantCulture) : "nil")}")
             .Order(StringComparer.Ordinal));
+
+    /// <summary>
+    /// Log signature of the plan's subscription details (CT-010), logged once per change:
+    /// <c>status=active interval=monthly next=2026-11-20T01:12:40Z ends=nil</c>. The raw strings,
+    /// so a time in a format the parser refuses still shows in the log.
+    /// </summary>
+    public static string SubscriptionSignature(SubscriptionDetails s) =>
+        $"status={s.Status ?? "nil"} interval={s.BillingInterval ?? "nil"} next={s.NextChargeAt ?? "nil"} ends={s.PlanEndingAt ?? "nil"}";
 
     private static string Bool(bool value) => value ? "true" : "false";
 
