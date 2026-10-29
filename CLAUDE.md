@@ -190,7 +190,7 @@ scripts/generate-appicon.ps1          ← redraws the icon; not a build step
   install can end without this copy living to see how — the PC shuts down, the setup closes
   the app and then stops — and counted only on failure such a release was never tried
   again. The count is saved before the countdown; if it cannot be saved the install is not
-  set off, because uncounted attempts have no end. The Mac counts failures (`DIVERGENCES`).
+  set off, because uncounted attempts have no end. The Mac does the same since CT-008.
 - **The setup is held open from the moment it is read until it has run** (`FileShare.Read`:
   it can be read and started, not written, replaced or removed), so what runs is what was
   judged, however long an open sign-in window keeps it waiting. Its version is read only
@@ -399,8 +399,10 @@ section), and `Start-Process -Wait` on a setup waits for the app the setup start
 
 Nothing has been published yet. The Build and the Release workflow have both run on
 GitHub (2026-10-06, green at the first run; v0.1.0 is a draft there, and its setup was
-installed on a PC). The publish script has not run as a whole: its checks were tried by
-hand on that draft, and the signing and the publishing need the Mac.
+installed on a PC). v0.2.0 (CT-009 and CT-010) was tagged on 2026-10-28 and is a draft too,
+its run's log carrying the setup's SHA-256; it supersedes the v0.1.0 draft, which was never
+published. The publish script has not run as a whole: its checks were tried by hand on the
+v0.1.0 draft, and the signing and the publishing need the Mac.
 
 ```bash
 # 1. Bump <Version> in Directory.Build.props, commit, tag the same number, push both.
