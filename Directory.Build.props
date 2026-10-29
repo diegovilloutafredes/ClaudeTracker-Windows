@@ -15,7 +15,7 @@
     release tags (v<Version>), so a release bumps this line and tags the same number.
   -->
   <PropertyGroup>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <!-- No "+commit" suffix: the app compares this string against release tags. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
