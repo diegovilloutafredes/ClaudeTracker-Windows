@@ -20,7 +20,7 @@ sign-in (CT-005, done), the Charts tab (CT-006, done), a pass in Spanish and as 
 screen reader is handed it (CT-007, done), a popover that stands beside the taskbar
 on whichever edge it is (CT-009), and the plan's next billing date in its footer (CT-010) —
 specs in the workspace's `shared/features/`.
-Nothing is released yet; the repo has been on GitHub since 2026-10-06. The app has been run signed in
+Released since 2026-10-29 (v0.2.0); the repo has been on GitHub since 2026-10-06. The app has been run signed in
 (2026-10-05, through Google with a passkey), from a build folder and installed by its
 setup: sign-in is detected, usage rows appear, the session survives a relaunch, an upgrade
 and an uninstall, and polling recovers by itself after the network drops. What is still
@@ -397,12 +397,10 @@ section), and `Start-Process -Wait` on a setup waits for the app the setup start
 
 ## Releases
 
-Nothing has been published yet. The Build and the Release workflow have both run on
-GitHub (2026-10-06, green at the first run; v0.1.0 is a draft there, and its setup was
-installed on a PC). v0.2.0 (CT-009 and CT-010) was tagged on 2026-10-28 and is a draft too,
-its run's log carrying the setup's SHA-256; it supersedes the v0.1.0 draft, which was never
-published. The publish script has not run as a whole: its checks were tried by hand on the
-v0.1.0 draft, and the signing and the publishing need the Mac.
+v0.2.0 (CT-009 and CT-010) is the first published release: the publish script below ran
+whole on the Mac on 2026-10-29, every check passing, and a copy of 0.1.0 installed on a PC
+updated itself to it minutes later. v0.3.0 (CT-011) was tagged the same day; its draft
+waits to be signed on the Mac. The v0.1.0 draft, superseded, was never published.
 
 ```bash
 # 1. Bump <Version> in Directory.Build.props, commit, tag the same number, push both.
