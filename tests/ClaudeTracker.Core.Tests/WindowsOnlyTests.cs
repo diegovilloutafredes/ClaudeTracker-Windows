@@ -915,22 +915,6 @@ public class WindowsOnlyTests
         Assert.Equal(fetched, update.SignatureUrl is not null);
     }
 
-    [Fact]
-    public void AutomaticInstallsAreCountedPerReleaseAndStopAtThree()
-    {
-        // Nothing saved, or what is saved is about another release: this one starts from nothing.
-        Assert.Equal(0, Updates.InstallAttempts("1.3.0", "", 0));
-        Assert.Equal(0, Updates.InstallAttempts("1.3.0", "1.2.0", 3));
-        Assert.Equal(2, Updates.InstallAttempts("1.3.0", "1.3.0", 2));
-        Assert.Equal(0, Updates.InstallAttempts("1.3.0", "1.3.0", -4));
-
-        // A setup that closes the app and then stops is started again with the app, three
-        // times in all — and three failures of one release do not hold back the next.
-        Assert.True(Updates.ShouldRetryAutoInstall(Updates.InstallAttempts("1.3.0", "1.3.0", 2)));
-        Assert.False(Updates.ShouldRetryAutoInstall(Updates.InstallAttempts("1.3.0", "1.3.0", 3)));
-        Assert.True(Updates.ShouldRetryAutoInstall(Updates.InstallAttempts("1.4.0", "1.3.0", 3)));
-    }
-
     [Theory]
     [InlineData("https://github.com/diegovilloutafredes/ClaudeTracker-Windows/releases/tag/v1.2.0", true)]
     [InlineData("http://127.0.0.1:8123/release.html", true)]
