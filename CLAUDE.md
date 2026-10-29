@@ -399,8 +399,8 @@ section), and `Start-Process -Wait` on a setup waits for the app the setup start
 
 v0.2.0 (CT-009 and CT-010) is the first published release: the publish script below ran
 whole on the Mac on 2026-10-29, every check passing, and a copy of 0.1.0 installed on a PC
-updated itself to it minutes later. v0.3.0 (CT-011) was tagged the same day; its draft
-waits to be signed on the Mac. The v0.1.0 draft, superseded, was never published.
+updated itself to it minutes later. v0.3.0 (CT-011) followed the same day, and that copy
+took it by itself too. The v0.1.0 draft, superseded, was never published.
 
 ```bash
 # 1. Bump <Version> in Directory.Build.props, commit, tag the same number, push both.
