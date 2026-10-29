@@ -18,8 +18,9 @@ Settings window with several accounts (CT-002, done), one row per account (CT-00
 alerts for resets and pace (CT-004, done), a setup with signed updates and launch at
 sign-in (CT-005, done), the Charts tab (CT-006, done), a pass in Spanish and as a
 screen reader is handed it (CT-007, done), a popover that stands beside the taskbar
-on whichever edge it is (CT-009), and the plan's next billing date in its footer (CT-010) —
-specs in the workspace's `shared/features/`.
+on whichever edge it is (CT-009), the plan's next billing date in its footer (CT-010), and
+a model's share of the weekly limit on its row (CT-011) — specs in the workspace's
+`shared/features/`.
 Released since 2026-10-29 (v0.2.0); the repo has been on GitHub since 2026-10-06. The app has been run signed in
 (2026-10-05, through Google with a passkey), from a build folder and installed by its
 setup: sign-in is detected, usage rows appear, the session survives a relaunch, an upgrade
