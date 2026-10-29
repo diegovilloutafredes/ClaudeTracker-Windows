@@ -1099,6 +1099,17 @@
         }
       }
     },
+    "That account was already here. Its sign-in has been refreshed.": {
+      "comment": "Notice after a sign-in turned out to be an account already in the list: its row was kept and given the new session (CT-003)",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa cuenta ya estaba aquí. Se renovó su inicio de sesión."
+          }
+        }
+      }
+    },
     "Time format": {
       "comment": "Settings label for the AM/PM vs 24-hour picker",
       "localizations": {
