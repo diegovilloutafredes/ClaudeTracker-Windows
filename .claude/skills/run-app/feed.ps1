@@ -2,7 +2,7 @@ param(
     [ValidateSet("signed-badly", "unsigned", "missing-file", "odd-address", "none", "stop")] [string]$Kind = "signed-badly",
     [string]$Setup = "",
     [string]$Signature = "",
-    [string]$Version = "0.2.0",
+    [string]$Version = "9.0.0",
     [int]$Port = 38920
 )
 # A stand-in for this repo's releases on GitHub, served from this PC: a releases list in
@@ -17,7 +17,7 @@ param(
 #   none          nothing newer than what runs
 #   stop          stops the server
 #
-# -Setup is the file to offer (build one with scripts\build-installer.ps1 -Version 0.2.0
+# -Setup is the file to offer (build one with scripts\build-installer.ps1 -Version 9.0.0
 # -OutputDir <somewhere>). Nothing on this PC can be signed with the release key, so the app
 # must refuse every kind here. To see it accept one, sign a setup on the Mac
 # (xcrun --sdk macosx swift scripts/update-signing.swift sign ClaudeTracker-Setup.exe) and

@@ -1,6 +1,6 @@
 """Removes what the update tests left in the app's settings (the app must not be running).
 
-Left behind, "lastNotifiedUpdateVersion: 0.2.0" would keep a real 0.2.0 from ever being
+Left behind, "lastNotifiedUpdateVersion: 9.0.0" would keep a real 9.0.0 from ever being
 announced or installed by itself: a version is announced once.
   python update-reset.py            the update bookkeeping
   python update-reset.py autoUpdate the bookkeeping and that preference too

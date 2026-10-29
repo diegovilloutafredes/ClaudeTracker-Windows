@@ -171,7 +171,7 @@ installed copy: test those there, not in `bin\Debug`.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1                       # artifacts\ClaudeTracker-Setup.exe
-powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 0.2.0 -OutputDir $env:TEMP\ct-020   # a "newer release" to upgrade to
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 -Version 9.0.0 -OutputDir $env:TEMP\ct-900   # a "newer release" to upgrade to
 
 $wizard = ".claude\skills\run-app\wizard.ps1"
 powershell -NoProfile -ExecutionPolicy Bypass -File $wizard -Program artifacts\ClaudeTracker-Setup.exe -Tag setup        # as a person would: every page, every button
@@ -232,7 +232,7 @@ banner, the Settings row and what was saved:
 
 ```powershell
 $skill = ".claude\skills\run-app"
-powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind signed-badly -Setup $env:TEMP\ct-020\ClaudeTracker-Setup.exe
+powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind signed-badly -Setup $env:TEMP\ct-900\ClaudeTracker-Setup.exe
 powershell -NoProfile -ExecutionPolicy Bypass -File $skill\watch-update.ps1          # ~35 s: found, counted down, downloaded, refused
 # ... -Kind unsigned (a link only, nothing downloaded), missing-file ("Couldn't download the update"),
 #     odd-address (the setup given as a file on this PC: a link only, nothing fetched), none
@@ -241,9 +241,9 @@ python $skill\update-reset.py                                                   
 powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind stop
 ```
 
-- Expect, for a badly signed release: "Update available — v0.2.0 found — installing in
-  ~10s" eleven seconds after start, "update: v0.2.0 is available; installing it (automatic
-  attempt 1 of 3)" and then "update failed (v0.2.0, automatic attempt 1 of 3): Update
+- Expect, for a badly signed release: "Update available — v9.0.0 found — installing in
+  ~10s" eleven seconds after start, "update: v9.0.0 is available; installing it (automatic
+  attempt 1 of 3)" and then "update failed (v9.0.0, automatic attempt 1 of 3): Update
   signature is invalid" in the log, "Download" in the banner and in Settings, and the
   running version unchanged.
 - **An attempt is counted when it is set off, not when it fails** (`failedInstallCount` in
@@ -251,17 +251,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $skill\feed.ps1 -Kind stop
   during the countdown and that one still counts. The third that fails shows one "Update
   failed" toast, and the fourth start tries nothing, with "Install" there to press.
 - After a failure that was not about the signature (`missing-file`), the button says
-  "Install" and pressing it tries again: "update failed (v0.2.0, asked for by hand)". A try
+  "Install" and pressing it tries again: "update failed (v9.0.0, asked for by hand)". A try
   by hand is not counted.
 - `odd-feed.py` is a feed whose download stalls, or is larger than any setup of this app:
   its first lines say how to run it and what to expect.
 - `wake.ps1` tells the app alone that the PC woke up and that the clock changed, against a
   feed nobody serves: the check on waking must be made again a minute later.
-- **Run `update-reset.py` when done.** A `lastNotifiedUpdateVersion` of 0.2.0 left in the
-  user's settings would keep the real 0.2.0 from ever being announced or installed by
+- **Run `update-reset.py` when done.** A `lastNotifiedUpdateVersion` of 9.0.0 left in the
+  user's settings would keep the real 9.0.0 from ever being announced or installed by
   itself. Run it with `autoUpdate` after its name if you switched that off for a test.
-- Nothing here can be signed with the release key, so the app accepting an update cannot be
-  seen on this PC. `feed.ps1` says how to serve one signed on the Mac.
+- The stand-in is v9.0.0 because it must be newer than the installed copy, which has taken
+  real releases since 2026-10-29 (v0.2.0 onwards); a 9.0.0 left in the settings can only
+  ever hold back a real 9.0.0.
+- Nothing here can be signed with the release key, so the stand-in cannot show the app
+  accepting an update; a real release does (0.1.0 to 0.2.0 on 2026-10-29, CT-005).
+  `feed.ps1` says how to serve one signed on the Mac.
 - Do not press "Download": it opens the user's browser.
 
 ## Where the popover stands, and whether it fits

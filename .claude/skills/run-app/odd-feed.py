@@ -28,7 +28,7 @@ if MODE not in ("stall", "declared-huge", "endless"):
 PORT = 38920
 BASE = f"http://127.0.0.1:{PORT}"
 RELEASES = [{
-    "tag_name": "v0.2.0", "html_url": f"{BASE}/release.html", "prerelease": False, "draft": False,
+    "tag_name": "v9.0.0", "html_url": f"{BASE}/release.html", "prerelease": False, "draft": False,
     "published_at": "2026-10-05T12:00:00Z",
     "assets": [
         {"name": "ClaudeTracker-Setup.exe", "browser_download_url": f"{BASE}/ClaudeTracker-Setup.exe"},
