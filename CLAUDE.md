@@ -48,7 +48,7 @@ src/ClaudeTracker.Core/               ← logic, API decoders, storage. net10.0,
   ApiModels.cs                        ← claude.ai payload types and their fail-soft decoding; log signatures
   Billing.cs                          ← the plan's next billing date: which one the footer shows, its words, when to read it again
   UsageMath.cs                        ← urgency colours, pace, polling tiers, reset detection, time text
-  RowText.cs                          ← the words of the pace lines and of money; the popup size range
+  RowText.cs                          ← the words of the pace lines, of money and of a model's weekly share; the popup size range
   Alerts.cs                           ← the words of the two alerts, which windows raise them, the sliders' ranges
   History.cs                          ← chart history, chart series, downsampling
   ChartLayout.cs                      ← the charts' arithmetic: the forecast's frame, the axis marks, the figures

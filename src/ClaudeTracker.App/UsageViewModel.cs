@@ -922,6 +922,11 @@ internal sealed class UsageViewModel(SettingsStore settings, AccountStore accoun
         {
             AppLogger.Shared.Info($"usage breakdown: {breakdown}");
         }
+        var shares = UsageSignatures.WeeklySharesSignature(current);
+        if (shares.Length > 0 && shares != (old is null ? null : UsageSignatures.WeeklySharesSignature(old)))
+        {
+            AppLogger.Shared.Info($"weekly shares: {shares}");
+        }
     }
 
     /// <summary>Sleeps for the adaptive interval (plus error backoff), then fetches again.</summary>

@@ -615,6 +615,14 @@ public partial class PopoverWindow : Window
             spoken.Add(line);
         }
 
+        // How much of the weekly limit this model's own limit may use (CT-011).
+        if (tracked.WeeklyAllowancePercent is { } allowance)
+        {
+            var line = ShareText.Allowance(allowance);
+            row.Children.Add(Plain(line, 12, Secondary, top: 3));
+            spoken.Add(line);
+        }
+
         // No pace on a full window (there is nothing left to project) or a stale one.
         if (viewModel.ShowPace && !isStale && window.Utilization < 100 && viewModel.Pace(tracked.Key) is { } pace)
         {
