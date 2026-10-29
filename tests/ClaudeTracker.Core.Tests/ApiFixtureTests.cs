@@ -655,6 +655,50 @@ public class ApiFixtureTests
     public void SubscriptionPayloadThatIsNotAnObjectFailsToDecode() =>
         Assert.Throws<ApiDecodeException>(() => SubscriptionDetails.Parse("[]"));
 
+    // MARK: - weekly_scoped_shares (CT-011)
+
+    [Fact]
+    public void LiveUsage20261028GivesFableItsShareOfTheWeeklyLimit()
+    {
+        var r = UsageResponse.Parse(Fixture.Text("live-usage-2026-10-28.json"));
+        var fable = Assert.Single(r.ScopedModelWindows);
+        Assert.Equal("Fable", fable.Label);
+        Assert.Equal(50.0, fable.WeeklyAllowancePercent);
+        Assert.Equal(50.0, r.TrackedWindows.Single(w => w.Key == "scoped.Fable").WeeklyAllowancePercent);
+        Assert.All(r.TrackedWindows.Where(w => !w.IsModelScoped), w => Assert.Null(w.WeeklyAllowancePercent));
+        Assert.Equal("Fable:allow=50,used=0,percent=0", UsageSignatures.WeeklySharesSignature(r));
+        // The six new null keys and the null "pace" change nothing else.
+        Assert.Equal(21.0, r.FiveHour?.Utilization);
+        Assert.Equal(8.0, r.SevenDay?.Utilization);
+    }
+
+    [Fact]
+    public void AWeeklyShareFollowsItsLimitByPositionInTheRawArray()
+    {
+        var json = """
+        {
+          "limits": [
+            {"percent": 5},
+            {"kind": "weekly_scoped", "percent": 10, "scope": {"model": {"display_name": "Fable"}}},
+            {"kind": "weekly_scoped", "percent": 20, "scope": {"model": {"display_name": "Opus"}}}
+          ],
+          "weekly_scoped_shares": [
+            {"limit_index": 1, "used_percent_of_weekly": 4, "allowance_percent_of_weekly": 40},
+            {"limit_index": 0, "allowance_percent_of_weekly": 99},
+            {"limit_index": 2, "allowance_percent_of_weekly": "half"},
+            {"limit_index": 7, "allowance_percent_of_weekly": 70},
+            {"allowance_percent_of_weekly": 30},
+            "not an entry"
+          ]
+        }
+        """;
+        var r = UsageResponse.Parse(json);
+        // The malformed first limit is dropped, and Fable is still entry 1 of the raw array: its
+        // share is 40, not the 99 of the entry that names the dropped one.
+        Assert.Equal(new double?[] { 40, null }, r.ScopedModelWindows.Select(w => w.WeeklyAllowancePercent));
+        Assert.Equal("Fable:allow=40,used=4,percent=10 Opus:allow=nil,used=nil,percent=20", UsageSignatures.WeeklySharesSignature(r));
+    }
+
     // MARK: - AccountInfo
 
     [Fact]

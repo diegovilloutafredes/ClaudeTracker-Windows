@@ -1060,6 +1060,16 @@ public class WindowsOnlyTests
                      PopoverPlacement.Stack(under, toasts, gap: 8, taken: new ScreenRect(2051, 56, 2391, 410)));
     }
 
+    // MARK: - A model's share of the weekly limit (CT-011)
+
+    [Fact]
+    public void AModelsRowSaysHowMuchOfTheWeeklyLimitItMayUse()
+    {
+        // The Mac words the line in its row's view; here it is a pure function, so the words are tested.
+        Assert.Equal("Up to 50% of the weekly limit", ShareText.Allowance(50));
+        Assert.Equal("Up to 33% of the weekly limit", ShareText.Allowance(33.4));   // whole, as the row's own percent
+    }
+
     // MARK: - Next billing date (CT-010)
 
     [Fact]

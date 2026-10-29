@@ -147,11 +147,33 @@ public sealed record UsageLimitScope(UsageLimitModel? Model)
     }
 }
 
+/// <summary>
+/// How much of the overall weekly allowance a model-scoped weekly limit may use, and has used
+/// (<c>weekly_scoped_shares</c>, seen 2026-10-28; CT-011). Both fields are lenient.
+/// </summary>
+/// <param name="UsedPercentOfWeekly">The model's use so far, as a share of the weekly allowance. Logged only.</param>
+/// <param name="AllowancePercentOfWeekly">The most of the weekly allowance the model may use, e.g. 50. Shown on its row.</param>
+public sealed record WeeklyScopedShare(double? UsedPercentOfWeekly, double? AllowancePercentOfWeekly)
+{
+    /// <summary>
+    /// An entry and the position in the raw <c>limits</c> array it names. Null without a whole
+    /// <c>limit_index</c> of 0 or more: the entry belongs to no limit.
+    /// </summary>
+    internal static (int LimitIndex, WeeklyScopedShare Share)? TryParse(JsonElement e)
+    {
+        if (e.ValueKind != JsonValueKind.Object) return null;
+        if (!e.TryGetProperty("limit_index", out var index) || index.ValueKind != JsonValueKind.Number
+            || !index.TryGetInt32(out var limitIndex) || limitIndex < 0) return null;
+        return (limitIndex, new WeeklyScopedShare(Lenient.Number(e, "used_percent_of_weekly"), Lenient.Number(e, "allowance_percent_of_weekly")));
+    }
+}
+
 /// <summary>A single entry in the usage response's <c>limits</c> array.</summary>
 /// <param name="Severity">Server-side urgency ("normal", "warning", "critical"). Logged only.</param>
 /// <param name="IsActive">Semantics unclear — it is not "currently binding". Logged only.</param>
+/// <param name="WeeklyShare">Its entry in <c>weekly_scoped_shares</c>, attached while decoding (CT-011).</param>
 public sealed record UsageLimit(string Kind, double? Percent = null, string? ResetsAt = null, UsageLimitScope? Scope = null,
-                                string? Severity = null, bool? IsActive = null)
+                                string? Severity = null, bool? IsActive = null, WeeklyScopedShare? WeeklyShare = null)
 {
     /// <summary>Only <c>kind</c> is load-bearing; any other wrong-typed field degrades to null.</summary>
     internal static UsageLimit? TryParse(JsonElement e)
@@ -256,7 +278,8 @@ public sealed record ExtraUsage(bool IsEnabled, double? MonthlyLimit = null, dou
 
 /// <summary>A model-scoped weekly limit surfaced as a displayable usage window.</summary>
 /// <param name="Label">The model's display name as reported by the API (e.g. "Fable").</param>
-public sealed record ScopedModelWindow(string Label, UsageWindow Window)
+/// <param name="WeeklyAllowancePercent">The most of the weekly allowance this model may use, when the API says (CT-011).</param>
+public sealed record ScopedModelWindow(string Label, UsageWindow Window, double? WeeklyAllowancePercent = null)
 {
     /// <summary>History-bucket key for pace tracking, distinct from the legacy window keys.</summary>
     public string PaceKey => "scoped." + Label;
@@ -269,7 +292,8 @@ public sealed record ScopedModelWindow(string Label, UsageWindow Window)
 /// </summary>
 /// <param name="Key">"five_hour", "seven_day", "seven_day_sonnet", or "scoped.&lt;model&gt;".</param>
 /// <param name="IsModelScoped">True for the legacy Sonnet sub-window and model-scoped limits.</param>
-public sealed record TrackedWindow(string Key, string Title, UsageWindow Window, bool IsModelScoped)
+/// <param name="WeeklyAllowancePercent">A model-scoped limit's share of the weekly allowance, when the API says (CT-011).</param>
+public sealed record TrackedWindow(string Key, string Title, UsageWindow Window, bool IsModelScoped, double? WeeklyAllowancePercent = null)
 {
     /// <summary>Every window but the 5-hour one spans a week.</summary>
     public bool IsSevenDay => Key != MenuBarWindow.FiveHour.RawValue();
@@ -316,13 +340,28 @@ public sealed record UsageResponse(UsageWindow? FiveHour, UsageWindow? SevenDay,
             if (root.ValueKind != JsonValueKind.Object) throw new ApiDecodeException("usage payload is not a JSON object");
 
             UsageWindow? Window(string name) => root.TryGetProperty(name, out var e) ? UsageWindow.TryParse(e) : null;
+            // Each share names its limit by position in the raw array, so it is attached while
+            // that position is known: a malformed entry dropped before it must not shift it.
+            var shares = new Dictionary<int, WeeklyScopedShare>();
+            if (root.TryGetProperty("weekly_scoped_shares", out var sharesElement) && sharesElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in sharesElement.EnumerateArray())
+                {
+                    if (WeeklyScopedShare.TryParse(entry) is { } share) shares.TryAdd(share.LimitIndex, share.Share);
+                }
+            }
             List<UsageLimit>? limits = null;
             if (root.TryGetProperty("limits", out var limitsElement) && limitsElement.ValueKind == JsonValueKind.Array)
             {
                 limits = [];
+                var index = 0;
                 foreach (var entry in limitsElement.EnumerateArray())
                 {
-                    if (UsageLimit.TryParse(entry) is { } limit) limits.Add(limit);
+                    if (UsageLimit.TryParse(entry) is { } limit)
+                    {
+                        limits.Add(shares.TryGetValue(index, out var share) ? limit with { WeeklyShare = share } : limit);
+                    }
+                    index++;
                 }
             }
             return new UsageResponse(
@@ -361,7 +400,8 @@ public sealed record UsageResponse(UsageWindow? FiveHour, UsageWindow? SevenDay,
             }
             foreach (var scoped in ScopedModelWindows)
             {
-                result.Add(new TrackedWindow(scoped.PaceKey, TrackedWindow.TitleForKey(scoped.PaceKey), scoped.Window, true));
+                result.Add(new TrackedWindow(scoped.PaceKey, TrackedWindow.TitleForKey(scoped.PaceKey), scoped.Window, true,
+                                             scoped.WeeklyAllowancePercent));
             }
             return result;
         }
@@ -384,7 +424,7 @@ public sealed record UsageResponse(UsageWindow? FiveHour, UsageWindow? SevenDay,
                 if (limit.Kind != "weekly_scoped") continue;
                 if (limit.Scope?.Model?.DisplayName is not { Length: > 0 } label || limit.Percent is not { } percent) continue;
                 if (SevenDaySonnet is not null && label == "Sonnet") continue;
-                var window = new ScopedModelWindow(label, new UsageWindow(percent, limit.ResetsAt));
+                var window = new ScopedModelWindow(label, new UsageWindow(percent, limit.ResetsAt), limit.WeeklyShare?.AllowancePercentOfWeekly);
                 if (indexByLabel.TryGetValue(label, out var index))
                 {
                     if (percent > result[index].Window.Utilization) result[index] = window;
@@ -623,6 +663,22 @@ public static class UsageSignatures
             .Where(row => row.Key is not null)
             .Select(row => $"{row.Key}:{(row.Percent is { } p ? p.ToString("F0", CultureInfo.InvariantCulture) : "nil")}")
             .Order(StringComparer.Ordinal));
+
+    /// <summary>
+    /// Log signature of the model-scoped limits' shares of the weekly allowance (CT-011), with
+    /// each limit's own percent beside them: <c>Fable:allow=50,used=0,percent=0</c>. Only the
+    /// allowance is shown; the log is where it can be learned whether <c>percent</c> is
+    /// <c>used</c> over <c>allow</c> (all three were 0 when first seen). Sorted, so a reorder is
+    /// no change. Empty when no limit has a share.
+    /// </summary>
+    public static string WeeklySharesSignature(UsageResponse r) =>
+        string.Join(" ", (r.Limits ?? [])
+            .Where(l => l.WeeklyShare is not null)
+            .Select(l => $"{l.Scope?.Model?.DisplayName ?? l.Kind}:allow={Whole(l.WeeklyShare!.AllowancePercentOfWeekly)}"
+                         + $",used={Whole(l.WeeklyShare.UsedPercentOfWeekly)},percent={Whole(l.Percent)}")
+            .Order(StringComparer.Ordinal));
+
+    private static string Whole(double? value) => value is { } v ? v.ToString("F0", CultureInfo.InvariantCulture) : "nil";
 
     /// <summary>
     /// Log signature of the plan's subscription details (CT-010), logged once per change:

@@ -3,6 +3,17 @@ using System.Globalization;
 namespace ClaudeTracker.Core;
 
 /// <summary>
+/// The line under a model-scoped row's reset time (CT-011): "Up to 50% of the weekly limit".
+/// The percentage is written as the row's own is — whole, with no space before the sign. The
+/// Mac app builds it inside the row's view.
+/// </summary>
+public static class ShareText
+{
+    public static string Allowance(double allowancePercent) =>
+        L.F("Up to %@ of the weekly limit", ((int)allowancePercent).ToString(CultureInfo.InvariantCulture) + "%");
+}
+
+/// <summary>
 /// The words of a usage row's two pace lines. The Mac app builds them inside the row's view
 /// (<c>UsageWindowView.paceLine</c> and <c>paceOutlook</c>); here they are pure functions, so
 /// the wording and its thresholds are tested rather than looked at.

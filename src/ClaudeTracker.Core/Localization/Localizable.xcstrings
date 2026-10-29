@@ -1154,6 +1154,17 @@
         }
       }
     },
+    "Up to %@ of the weekly limit": {
+      "comment": "Usage row of a model-scoped weekly limit: how much of the overall weekly limit that model may use, e.g. 50% (CT-011)",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hasta el %@ del límite semanal"
+          }
+        }
+      }
+    },
     "Update failed": {
       "localizations": {
         "es": {
